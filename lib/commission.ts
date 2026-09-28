@@ -1,22 +1,27 @@
-import { CommissionBreakdown } from '@/types/chakra';
+import { CommissionBreakdown, ProductCategory } from '@/types/chakra';
 
 /**
  * Calculates marketplace commissions using integer minor units (paise)
  * to strictly prevent IEEE 754 floating-point rounding errors.
  *
- * Example given in prompt:
- * ₹500 product (50000 paise):
- * - Marketplace commission: 10% = ₹50 (5000 paise) gross
- * - Affiliate commission: 3% = ₹15 (1500 paise) paid from marketplace's share
- * - Seller net: ₹450 (45000 paise)
- * - Affiliate net: ₹15 (1500 paise)
- * - Marketplace net: ₹35 (3500 paise)
+ * SPECIFICATION:
+ * - Default CHAKRA Owner Commission: FIXED 20%
+ * - Seller Gross Share: 80%
  *
- * Invariant: seller_net + affiliate_fee + platform_net === product_price
+ * Benchmark Scenario:
+ * Product price = ₹1,000 (100,000 paise) with 20% platform commission:
+ * - CHAKRA platform cut (20%) = ₹200 (20,000 paise)
+ * - Seller gross share (80%) = ₹800 (80,000 paise)
+ * - Estimated Payment gateway fee (~2% + 18% GST = 2.36%): ₹23.60 (2,360 paise)
+ *
+ * IMPORTANT FINANCIAL RULE:
+ * "CHAKRA commission: 20% before applicable payment gateway charges, taxes,
+ * refunds, chargebacks and other applicable adjustments."
+ * Never present gross platform commission as pure guaranteed bank profit.
  */
 export function calculateCommission({
   productPricePaise,
-  platformCommissionRatePercent = 10,
+  platformCommissionRatePercent = 20, // FIXED 20% DEFAULT
   affiliateCommissionRatePercent = 3,
   hasAffiliate = false,
 }: {
@@ -29,55 +34,52 @@ export function calculateCommission({
     throw new Error('Product price cannot be negative');
   }
 
-  // Integer math: calculate platform gross cut in paise
+  const sellerSharePercent = Math.max(0, 100 - platformCommissionRatePercent);
+
+  // Integer math: calculate platform gross cut in paise (20%)
   const platformGrossFeePaise = Math.round(
     (productPricePaise * platformCommissionRatePercent) / 100
   );
 
-  // Seller receives full price minus platform gross fee
-  const sellerNetPaise = productPricePaise - platformGrossFeePaise;
+  // Seller receives remaining share (80%) before gateway deductions
+  const sellerGrossAmountPaise = productPricePaise - platformGrossFeePaise;
+
+  // Estimated standard Razorpay gateway processing fee (~2% + 18% GST = 2.36%)
+  const estimatedGatewayFeePaise = Math.round((productPricePaise * 236) / 10000);
 
   // Affiliate fee is paid from marketplace's share if eligible affiliate referred the sale
   const effectiveAffiliateRate = hasAffiliate ? affiliateCommissionRatePercent : 0;
   const affiliateFeePaise = hasAffiliate
     ? Math.min(
         Math.round((productPricePaise * effectiveAffiliateRate) / 100),
-        platformGrossFeePaise // Cannot exceed platform gross fee
+        platformGrossFeePaise
       )
     : 0;
 
-  // Platform retains gross fee minus affiliate payout
-  const platformNetFeePaise = platformGrossFeePaise - affiliateFeePaise;
+  // Platform net fee after affiliate deduction
+  const platformNetFeePaise = Math.max(0, platformGrossFeePaise - affiliateFeePaise);
+  const sellerNetPaise = sellerGrossAmountPaise;
 
-  // Invariant verification
-  const totalCheck = sellerNetPaise + affiliateFeePaise + platformNetFeePaise;
-  if (totalCheck !== productPricePaise) {
-    // Reconcile any 1-paise rounding edge case onto platform net
-    const diff = productPricePaise - totalCheck;
-    return {
-      product_price_paise: productPricePaise,
-      platform_commission_rate_percent: platformCommissionRatePercent,
-      platform_gross_fee_paise: platformGrossFeePaise,
-      affiliate_commission_rate_percent: effectiveAffiliateRate,
-      affiliate_fee_paise: affiliateFeePaise,
-      platform_net_fee_paise: platformNetFeePaise + diff,
-      seller_net_paise: sellerNetPaise,
-    };
-  }
+  // Invariant verification: seller_gross + platform_gross must equal product_price
+  const sumCheck = sellerGrossAmountPaise + platformGrossFeePaise;
+  const diff = productPricePaise - sumCheck;
 
   return {
     product_price_paise: productPricePaise,
     platform_commission_rate_percent: platformCommissionRatePercent,
-    platform_gross_fee_paise: platformGrossFeePaise,
+    platform_gross_fee_paise: platformGrossFeePaise + diff,
+    seller_share_percent: sellerSharePercent,
+    seller_gross_amount_paise: sellerGrossAmountPaise,
     affiliate_commission_rate_percent: effectiveAffiliateRate,
     affiliate_fee_paise: affiliateFeePaise,
-    platform_net_fee_paise: platformNetFeePaise,
+    estimated_payment_gateway_fee_paise: estimatedGatewayFeePaise,
+    platform_net_fee_paise: platformNetFeePaise + diff,
     seller_net_paise: sellerNetPaise,
   };
 }
 
 /**
- * Format INR paise into human-friendly currency string (e.g. ₹500 or ₹500.50)
+ * Format INR paise into human-friendly currency string (e.g. ₹1,000 or ₹1,000.50)
  */
 export function formatINR(paise: number, showDecimalsIfZero = false): string {
   const rupees = paise / 100;

@@ -1,4 +1,4 @@
-export type UserRole = 'buyer' | 'seller' | 'affiliate' | 'admin';
+export type UserRole = 'buyer' | 'seller' | 'affiliate' | 'admin' | 'owner';
 
 export type ProductCategory =
   | 'ebooks'
@@ -39,6 +39,8 @@ export interface UserProfile {
       upi_id?: string;
       pan_number?: string;
       kyc_approved: boolean;
+      razorpay_linked_account_id?: string;
+      route_active?: boolean;
     };
   };
   affiliate_profile?: {
@@ -55,7 +57,7 @@ export interface Product {
   slug: string;
   description: string;
   short_description: string;
-  price_paise: number; // Stored in integer paise (e.g. ₹500.00 is 50000)
+  price_paise: number; // Stored in integer paise (e.g. ₹1,000.00 is 100000)
   original_price_paise?: number;
   category: ProductCategory;
   product_type: ProductType;
@@ -67,8 +69,8 @@ export interface Product {
   digital_file_size_bytes?: number;
   digital_file_format?: string;
   download_limit: number;
-  stock_quantity?: number; // for physical products
-  weight_grams?: number; // for physical products
+  stock_quantity?: number;
+  weight_grams?: number;
   seller_id: string;
   seller_name: string;
   seller_avatar?: string;
@@ -80,10 +82,11 @@ export interface Product {
   bestseller?: boolean;
   trending?: boolean;
   affiliate_eligible: boolean;
-  custom_affiliate_rate_percent?: number; // e.g. 3% by default
+  custom_affiliate_rate_percent?: number;
+  commission_override_percent?: number; // Optional product-specific override
   created_at: string;
   updated_at: string;
-  sample_content_preview?: string; // e.g. Table of Contents or excerpt
+  sample_content_preview?: string;
 }
 
 export interface CartItem {
@@ -94,10 +97,13 @@ export interface CartItem {
 
 export interface CommissionBreakdown {
   product_price_paise: number;
-  platform_commission_rate_percent: number;
-  platform_gross_fee_paise: number;
+  platform_commission_rate_percent: number; // 20% fixed by default
+  platform_gross_fee_paise: number; // 20%
+  seller_share_percent: number; // 80%
+  seller_gross_amount_paise: number; // 80%
   affiliate_commission_rate_percent: number;
   affiliate_fee_paise: number;
+  estimated_payment_gateway_fee_paise: number; // ~2% + GST
   platform_net_fee_paise: number;
   seller_net_paise: number;
 }
@@ -141,6 +147,77 @@ export interface Order {
   };
   fulfillment_status?: 'not_applicable' | 'pending' | 'shipped' | 'delivered';
   tracking_number?: string;
+  commission_percentage: number; // Snapshot of commission at order time
+  created_at: string;
+}
+
+export interface CommissionRecord {
+  id: string;
+  order_id: string;
+  order_number: string;
+  product_id: string;
+  product_title: string;
+  seller_id: string;
+  seller_name: string;
+  gross_amount_paise: number;
+  eligible_amount_paise: number;
+  commission_percentage: number; // Stored fixed 20% snapshot
+  owner_commission_paise: number; // 20%
+  seller_amount_paise: number; // 80%
+  affiliate_commission_paise: number;
+  payment_gateway_fee_paise: number;
+  net_marketplace_revenue_paise: number;
+  payment_id: string;
+  settlement_status: 'pending' | 'on_hold' | 'settled' | 'refunded';
+  route_transfer_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentTransaction {
+  id: string;
+  order_id: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  amount_paise: number;
+  currency: string;
+  fee_paise: number;
+  tax_paise: number;
+  status: 'captured' | 'failed' | 'refunded';
+  method: string;
+  bank?: string;
+  wallet?: string;
+  vpa?: string;
+  email: string;
+  contact: string;
+  captured_at: string;
+  idempotency_key: string;
+}
+
+export interface SettlementRecord {
+  id: string;
+  settlement_id: string;
+  amount_paise: number;
+  fee_paise: number;
+  tax_paise: number;
+  net_amount_paise: number;
+  status: 'settled' | 'pending' | 'failed';
+  utr: string;
+  bank_account_masked: string;
+  created_at: string;
+  settled_at: string;
+}
+
+export interface RefundRecord {
+  id: string;
+  payment_id: string;
+  order_id: string;
+  order_number: string;
+  amount_paise: number;
+  owner_deduction_paise: number;
+  seller_deduction_paise: number;
+  reason: string;
+  status: 'processed' | 'pending' | 'failed';
   created_at: string;
 }
 
@@ -179,12 +256,14 @@ export interface PayoutRecord {
   seller_id: string;
   seller_name: string;
   amount_paise: number;
-  status: 'pending' | 'approved' | 'processing' | 'completed' | 'rejected';
-  payout_method: 'bank_transfer' | 'upi';
+  status: 'pending' | 'approved' | 'processing' | 'completed' | 'rejected' | 'on_hold';
+  payout_method: 'razorpay_route' | 'bank_transfer' | 'upi';
   destination_summary: string;
+  linked_account_id?: string;
   reference_number?: string;
   requested_at: string;
   processed_at?: string;
+  hold_reason?: string;
 }
 
 export interface Review {
@@ -239,7 +318,7 @@ export interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  type: 'order' | 'payout' | 'moderation' | 'affiliate' | 'system';
+  type: 'order' | 'payout' | 'moderation' | 'affiliate' | 'system' | 'finance';
   read: boolean;
   created_at: string;
   link?: string;
@@ -248,8 +327,9 @@ export interface NotificationItem {
 export interface PlatformSettings {
   marketplace_name: string;
   tagline: string;
-  default_commission_rate_percent: number; // e.g. 10
-  default_affiliate_rate_percent: number; // e.g. 3
+  default_commission_rate_percent: number; // FIXED 20%
+  allow_commission_override: boolean; // Safe lock preventing accidental modification from 20%
+  default_affiliate_rate_percent: number;
   category_commissions: Record<ProductCategory, number>;
   demo_mode_enabled: boolean;
   allow_seller_self_registration: boolean;
@@ -257,4 +337,12 @@ export interface PlatformSettings {
   cookie_attribution_days: number;
   minimum_payout_amount_paise: number;
   default_language: 'en' | 'mr' | 'hi';
+  
+  // Razorpay & Route settings
+  razorpay_mid: string; // "ThQ32KbfQQu7Qy"
+  razorpay_linked_account_id: string; // e.g. "acc_ThQ32KbfQQu7Qy"
+  razorpay_route_enabled: boolean; // Only true when approved and activated
+  razorpay_webhook_url: string;
+  payment_mode_live: boolean;
+  merchant_bank_summary: string;
 }

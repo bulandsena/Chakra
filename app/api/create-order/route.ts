@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { calculateCommission } from '@/lib/commission';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { amountPaise, items, customerEmail, affiliateCode } = body;
+    const { amountPaise, items, customerEmail, affiliateCode, transfers } = body;
 
     if (!amountPaise || amountPaise <= 0) {
       return NextResponse.json(
@@ -16,24 +15,40 @@ export async function POST(req: NextRequest) {
     const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
     const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
 
-    // If live credentials are provided, invoke Razorpay API
+    const isLiveRequested = body.isLive === true || process.env.RAZORPAY_LIVE_MODE === 'true';
+
+    // If live/real test credentials are provided, invoke Razorpay API
     if (razorpayKeyId && razorpayKeySecret && !razorpayKeyId.includes('YOUR_')) {
       const basicAuth = Buffer.from(`${razorpayKeyId}:${razorpayKeySecret}`).toString('base64');
+      
+      const orderPayload: Record<string, any> = {
+        amount: amountPaise, // in paise
+        currency: 'INR',
+        receipt: `rcpt_${Date.now()}`,
+        notes: {
+          customer_email: customerEmail || 'buyer@example.com',
+          affiliate_code: affiliateCode || 'direct',
+        },
+      };
+
+      // If Razorpay Route transfers are requested and valid linked account is provided
+      if (Array.isArray(transfers) && transfers.length > 0) {
+        orderPayload.transfers = transfers.map((t: any) => ({
+          account: t.account,
+          amount: t.amount,
+          currency: 'INR',
+          notes: t.notes || {},
+          on_hold: t.on_hold ? 1 : 0,
+        }));
+      }
+
       const rzpResponse = await fetch('https://api.razorpay.com/v1/orders', {
         method: 'POST',
         headers: {
           Authorization: `Basic ${basicAuth}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          amount: amountPaise, // in paise
-          currency: 'INR',
-          receipt: `rcpt_${Date.now()}`,
-          notes: {
-            customer_email: customerEmail,
-            affiliate_code: affiliateCode || 'organic',
-          },
-        }),
+        body: JSON.stringify(orderPayload),
       });
 
       if (!rzpResponse.ok) {
@@ -51,10 +66,22 @@ export async function POST(req: NextRequest) {
         amountPaise: rzpData.amount,
         currency: 'INR',
         keyId: razorpayKeyId,
+        isLive: isLiveRequested,
+        transfers: rzpData.transfers,
       });
     }
 
-    // Default simulation response for sandbox/demo mode
+    // Never simulate live payments when live mode is requested
+    if (isLiveRequested) {
+      return NextResponse.json(
+        {
+          error: 'Live payment unavailable: Real Razorpay API credentials (RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET) must be set in Netlify environment variables. Live payments are never simulated.',
+        },
+        { status: 503 }
+      );
+    }
+
+    // Default simulation response for sandbox/demo mode only
     const simulatedOrderId = `order_sim_${Date.now().toString(36)}`;
     return NextResponse.json({
       success: true,

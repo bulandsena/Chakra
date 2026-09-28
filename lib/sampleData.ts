@@ -1,19 +1,30 @@
-import { Product, BlogPost, Review, UserProfile, PlatformSettings } from '@/types/chakra';
+import {
+  Product,
+  BlogPost,
+  Review,
+  UserProfile,
+  PlatformSettings,
+  CommissionRecord,
+  PaymentTransaction,
+  SettlementRecord,
+  RefundRecord,
+} from '@/types/chakra';
 
 export const initialPlatformSettings: PlatformSettings = {
   marketplace_name: 'CHAKRA',
   tagline: 'Create • Sell • Earn',
-  default_commission_rate_percent: 10,
+  default_commission_rate_percent: 20, // FIXED 20% DEFAULT COMMISSION
+  allow_commission_override: false, // Locked protection by default to prevent accidental change
   default_affiliate_rate_percent: 3,
   category_commissions: {
-    ebooks: 10,
-    storybooks: 10,
-    education: 8,
-    templates: 10,
-    courses: 12,
-    software: 10,
-    artisan_crafts: 10,
-    physical_goods: 10,
+    ebooks: 20,
+    storybooks: 20,
+    education: 20,
+    templates: 20,
+    courses: 20,
+    software: 20,
+    artisan_crafts: 20,
+    physical_goods: 20,
   },
   demo_mode_enabled: true,
   allow_seller_self_registration: true,
@@ -21,6 +32,14 @@ export const initialPlatformSettings: PlatformSettings = {
   cookie_attribution_days: 30,
   minimum_payout_amount_paise: 100000, // ₹1,000
   default_language: 'en',
+
+  // Razorpay & Route Merchant Configuration
+  razorpay_mid: 'ThQ32KbfQQu7Qy',
+  razorpay_linked_account_id: 'acc_ThQ32KbfQQu7Qy',
+  razorpay_route_enabled: false, // Route must be confirmed active before live transfers
+  razorpay_webhook_url: 'https://chakra-marketplace.in/api/razorpay/webhook',
+  payment_mode_live: false,
+  merchant_bank_summary: 'HDFC Bank Ltd •••• 8912 (IFSC: HDFC0001245)',
 };
 
 export const sampleProducts: Product[] = [
@@ -29,17 +48,17 @@ export const sampleProducts: Product[] = [
     title: 'The Sovereign Indian Creator Playbook (2026 Edition)',
     slug: 'the-sovereign-indian-creator-playbook',
     description:
-      'The definitive step-by-step 240-page guide to building a profitable digital business in India. Covers eBook publishing, high-ticket digital courses, GST compliance for digital creators, UPI funnel conversion, and international payments without losing 30% to platform middlemen.',
+      'The definitive step-by-step 240-page guide to building a profitable digital business in India. Covers eBook publishing, high-ticket digital courses, GST compliance for digital creators, UPI funnel conversion, and international payments.',
     short_description: '240-page master guide for Indian creators to package and sell digital knowledge.',
-    price_paise: 49900, // ₹499
-    original_price_paise: 99900,
+    price_paise: 100000, // ₹1,000 (standard benchmark)
+    original_price_paise: 199900,
     category: 'ebooks',
     product_type: 'digital',
     tags: ['Creator Economy', 'eBook', 'Business', 'Solopreneur', 'Monetization'],
     cover_image: '/images/product_ebook_guide_1790588355041.jpg',
     preview_file_url: 'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf',
     digital_file_name: 'Sovereign_Indian_Creator_Playbook_v2026.pdf',
-    digital_file_size_bytes: 14800000, // 14.8 MB
+    digital_file_size_bytes: 14800000,
     digital_file_format: 'PDF (Printable & DRM-free)',
     download_limit: 5,
     seller_id: 'seller_aarav',
@@ -66,7 +85,7 @@ export const sampleProducts: Product[] = [
     description:
       'A battle-tested, production-ready design library featuring 480+ UI components, dark and light modes, accessible tokens, responsive patterns, and full TypeScript Next.js code exports. Ideal for indie hackers, agencies, and senior designers building SaaS products.',
     short_description: '480+ accessible Figma UI components and clean Tailwind/React code kit.',
-    price_paise: 149900, // ₹1,499
+    price_paise: 150000, // ₹1,500
     original_price_paise: 299900,
     category: 'templates',
     product_type: 'digital',
@@ -74,7 +93,7 @@ export const sampleProducts: Product[] = [
     cover_image: '/images/product_course_design_1790588371629.jpg',
     preview_file_url: 'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf',
     digital_file_name: 'DesignCraft_Pro_Figma_Kit_v3.zip',
-    digital_file_size_bytes: 42000000, // 42 MB
+    digital_file_size_bytes: 42000000,
     digital_file_format: 'ZIP (Figma Community File + Next.js Repo)',
     download_limit: 5,
     seller_id: 'seller_priya',
@@ -88,7 +107,7 @@ export const sampleProducts: Product[] = [
     bestseller: false,
     trending: true,
     affiliate_eligible: true,
-    custom_affiliate_rate_percent: 5,
+    custom_affiliate_rate_percent: 3,
     created_at: '2026-01-20T14:30:00Z',
     updated_at: '2026-02-10T16:00:00Z',
     sample_content_preview:
@@ -101,7 +120,7 @@ export const sampleProducts: Product[] = [
     description:
       'Handcrafted by 4th-generation metal masters of Moradabad. Solid virgin brass with delicate 16-spoke sacred wheel engravings and protective anti-tarnish lacquering. Comes in a ceremonial velvet-lined gift box with authentic brass care guide.',
     short_description: 'Pure solid brass ceremonial oil lamp hand-carved with sacred chakra spokes.',
-    price_paise: 129900, // ₹1,299
+    price_paise: 120000, // ₹1,200
     original_price_paise: 189900,
     category: 'artisan_crafts',
     product_type: 'physical',
@@ -132,8 +151,8 @@ export const sampleProducts: Product[] = [
     description:
       'महाराष्ट्रातील शौर्य, संस्कृती आणि मानवी संवेदनांवर आधारित २५ अप्रतिम कथांचा संग्रह. सुंदर डिजिटल फॉन्ट्स, ऑडिओ संवादांची लिंक आणि प्रत्येक कथेचे सुरेख चित्र रेखाटन. मोबाईल आणि ई-रीडरवर सहज वाचण्याजोगे.',
     short_description: 'महाराष्ट्राच्या शौर्य आणि संस्कृतीवर आधारित २५ सुरेख कथांचा संग्रह (PDF & ePub).',
-    price_paise: 29900, // ₹299
-    original_price_paise: 49900,
+    price_paise: 50000, // ₹500
+    original_price_paise: 99900,
     category: 'storybooks',
     product_type: 'digital',
     tags: ['मराठी', 'साहित्य', 'कथा', 'ऐतिहासिक', 'eBook'],
@@ -154,7 +173,7 @@ export const sampleProducts: Product[] = [
     bestseller: true,
     trending: true,
     affiliate_eligible: true,
-    custom_affiliate_rate_percent: 4,
+    custom_affiliate_rate_percent: 3,
     created_at: '2026-01-18T11:20:00Z',
     updated_at: '2026-02-05T13:00:00Z',
     sample_content_preview:
@@ -167,7 +186,7 @@ export const sampleProducts: Product[] = [
     description:
       'High-yield visual summary notes designed for UPSC Civil Services, MPSC, and State PSC examinations. Includes 85 hand-drawn mindmaps, chronological timeline charts, key constitutional committee summaries, and previous years question trend analysis.',
     short_description: '85 visual mindmaps and crisp revision notes for civil service aspirants.',
-    price_paise: 39900, // ₹399
+    price_paise: 50000, // ₹500
     original_price_paise: 79900,
     category: 'education',
     product_type: 'digital',
@@ -193,101 +212,179 @@ export const sampleProducts: Product[] = [
     created_at: '2026-01-22T07:15:00Z',
     updated_at: '2026-02-12T15:45:00Z',
   },
+];
+
+// Immutable Commission Ledger Records (20% Owner / 80% Seller)
+export const sampleCommissionRecords: CommissionRecord[] = [
   {
-    id: 'prod_freelance_finance_sheets',
-    title: 'Chakra Wealth OS: Freelance Income, Invoicing & GST Sheet',
-    slug: 'chakra-wealth-os-freelance-invoicing-gst-sheets',
-    description:
-      'Automated financial dashboard for Indian freelancers and digital agencies. Generates GST-compliant PDF invoices, calculates 44ADA presumptive taxation, tracks client payment milestones, and forecasts quarterly advance taxes automatically.',
-    short_description: 'Automated Google Sheets template for Indian freelancers, GST and income tracking.',
-    price_paise: 49900, // ₹499
-    original_price_paise: 99900,
-    category: 'templates',
-    product_type: 'digital',
-    tags: ['Google Sheets', 'Finance', 'Freelancing', 'GST', 'Tax Calculator'],
-    cover_image: '/images/product_course_design_1790588371629.jpg',
-    preview_file_url: 'https://raw.githubusercontent.com/mozilla/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf',
-    digital_file_name: 'Chakra_Wealth_OS_v4.xlsx',
-    digital_file_size_bytes: 5400000,
-    digital_file_format: 'Google Sheets link + Excel XLSX',
-    download_limit: 5,
-    seller_id: 'seller_priya',
-    seller_name: 'Priya Kulkarni',
-    seller_avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop',
-    rating: 4.75,
-    review_count: 28,
-    sales_count: 240,
-    status: 'approved',
-    featured: false,
-    bestseller: false,
-    trending: false,
-    affiliate_eligible: true,
-    custom_affiliate_rate_percent: 3,
-    created_at: '2026-01-25T13:00:00Z',
-    updated_at: '2026-02-15T11:00:00Z',
-  },
-  {
-    id: 'prod_nextjs_saas_boilerplate',
-    title: 'NextSaas Pro: Production Multi-Tenant Boilerplate',
-    slug: 'nextsaas-pro-multi-tenant-boilerplate',
-    description:
-      'Full-stack Next.js 15 App Router boilerplate with Supabase PostgreSQL, Authentication, Stripe & Razorpay webhook handlers, admin analytics panel, and clean shadcn/Tailwind components. Ready to deploy to Netlify or Vercel in 15 minutes.',
-    short_description: 'Next.js 15, Supabase, Tailwind, and Razorpay production starter codebase.',
-    price_paise: 249900, // ₹2,499
-    original_price_paise: 499900,
-    category: 'software',
-    product_type: 'digital',
-    tags: ['Next.js', 'Supabase', 'SaaS Boilerplate', 'TypeScript', 'Tailwind'],
-    cover_image: '/images/product_course_design_1790588371629.jpg',
-    digital_file_name: 'nextsaas-pro-v2.1.zip',
-    digital_file_size_bytes: 28000000,
-    digital_file_format: 'Full GitHub Repo Source Archive (ZIP)',
-    download_limit: 5,
+    id: 'comm_rec_1001',
+    order_id: 'ord_17905001',
+    order_number: 'CHK-892144',
+    product_id: 'prod_creator_playbook',
+    product_title: 'The Sovereign Indian Creator Playbook (2026 Edition)',
     seller_id: 'seller_aarav',
     seller_name: 'Aarav Deshmukh',
-    seller_avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop',
-    rating: 4.92,
-    review_count: 45,
-    sales_count: 198,
-    status: 'approved',
-    featured: true,
-    bestseller: false,
-    trending: true,
-    affiliate_eligible: true,
-    custom_affiliate_rate_percent: 5,
-    created_at: '2026-02-01T09:00:00Z',
-    updated_at: '2026-02-20T17:15:00Z',
+    gross_amount_paise: 100000, // ₹1,000
+    eligible_amount_paise: 100000,
+    commission_percentage: 20, // FIXED 20%
+    owner_commission_paise: 20000, // ₹200 (20%)
+    seller_amount_paise: 80000, // ₹800 (80%)
+    affiliate_commission_paise: 0,
+    payment_gateway_fee_paise: 2360, // ₹23.60 (~2.36%)
+    net_marketplace_revenue_paise: 17640, // ₹176.40
+    payment_id: 'pay_ThQ32Kbf_001',
+    settlement_status: 'settled',
+    route_transfer_id: 'trf_982144_seller',
+    created_at: '2026-02-24T10:15:00Z',
+    updated_at: '2026-02-25T14:30:00Z',
   },
   {
-    id: 'prod_silk_handcrafted_journal',
-    title: 'Artisan Mulberry Silk Hardbound Creator Journal & Brass Bookmark',
-    slug: 'artisan-mulberry-silk-hardbound-journal-brass-bookmark',
-    description:
-      'Exquisite 192-page unruled archival cotton paper journal bound in hand-woven raw mulberry silk. Accompanied by a precision laser-etched circular chakra brass bookmark. Hand-bound by traditional artisans in Varanasi.',
-    short_description: 'Raw silk hardbound journal with handmade cotton pages and solid brass chakra bookmark.',
-    price_paise: 89900, // ₹899
-    original_price_paise: 129900,
-    category: 'physical_goods',
-    product_type: 'physical',
-    tags: ['Journal', 'Silk', 'Stationery', 'Gift Box', 'Handcrafted'],
-    cover_image: '/images/hero_marketplace_showcase_1790588339548.jpg',
-    stock_quantity: 60,
-    weight_grams: 450,
-    download_limit: 0,
+    id: 'comm_rec_1002',
+    order_id: 'ord_17905002',
+    order_number: 'CHK-892145',
+    product_id: 'prod_design_craft_system',
+    product_title: 'DesignCraft Pro: Complete Figma Design System & Next.js Kit',
+    seller_id: 'seller_priya',
+    seller_name: 'Priya Kulkarni',
+    gross_amount_paise: 150000, // ₹1,500
+    eligible_amount_paise: 150000,
+    commission_percentage: 20,
+    owner_commission_paise: 30000, // ₹300 (20%)
+    seller_amount_paise: 120000, // ₹1,200 (80%)
+    affiliate_commission_paise: 4500, // ₹45 (3%)
+    payment_gateway_fee_paise: 3540,
+    net_marketplace_revenue_paise: 21960,
+    payment_id: 'pay_ThQ32Kbf_002',
+    settlement_status: 'settled',
+    route_transfer_id: 'trf_982145_seller',
+    created_at: '2026-02-25T11:20:00Z',
+    updated_at: '2026-02-26T14:30:00Z',
+  },
+  {
+    id: 'comm_rec_1003',
+    order_id: 'ord_17905003',
+    order_number: 'CHK-892146',
+    product_id: 'prod_brass_diya_lamp',
+    product_title: 'Chakra Hand-Engraved Brass Diya & Aarti Vessel',
     seller_id: 'seller_moradabad',
     seller_name: 'Moradabad Heritage Guild',
-    seller_avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop',
-    rating: 4.88,
-    review_count: 31,
-    sales_count: 142,
-    status: 'approved',
-    featured: false,
-    bestseller: false,
-    trending: false,
-    affiliate_eligible: true,
-    custom_affiliate_rate_percent: 3,
-    created_at: '2026-01-28T10:15:00Z',
-    updated_at: '2026-02-18T14:00:00Z',
+    gross_amount_paise: 120000, // ₹1,200
+    eligible_amount_paise: 120000,
+    commission_percentage: 20,
+    owner_commission_paise: 24000, // ₹240 (20%)
+    seller_amount_paise: 96000, // ₹960 (80%)
+    affiliate_commission_paise: 0,
+    payment_gateway_fee_paise: 2832,
+    net_marketplace_revenue_paise: 21168,
+    payment_id: 'pay_ThQ32Kbf_003',
+    settlement_status: 'pending',
+    created_at: '2026-02-26T09:00:00Z',
+    updated_at: '2026-02-26T09:00:00Z',
+  },
+  {
+    id: 'comm_rec_1004',
+    order_id: 'ord_17905004',
+    order_number: 'CHK-892147',
+    product_id: 'prod_marathi_stories',
+    product_title: 'मराठी कथाविश्व: ऐतिहासिक आणि प्रेरणादायी कथा संग्रह',
+    seller_id: 'seller_tanvi',
+    seller_name: 'Tanvi Joshi (तन्वी जोशी)',
+    gross_amount_paise: 50000, // ₹500
+    eligible_amount_paise: 50000,
+    commission_percentage: 20,
+    owner_commission_paise: 10000, // ₹100 (20%)
+    seller_amount_paise: 40000, // ₹400 (80%)
+    affiliate_commission_paise: 1500, // ₹15 (3%)
+    payment_gateway_fee_paise: 1180,
+    net_marketplace_revenue_paise: 7320,
+    payment_id: 'pay_ThQ32Kbf_004',
+    settlement_status: 'pending',
+    created_at: '2026-02-27T14:10:00Z',
+    updated_at: '2026-02-27T14:10:00Z',
+  },
+];
+
+export const samplePaymentTransactions: PaymentTransaction[] = [
+  {
+    id: 'txn_001',
+    order_id: 'ord_17905001',
+    razorpay_order_id: 'order_ThQ32Kbf_001',
+    razorpay_payment_id: 'pay_ThQ32Kbf_001',
+    amount_paise: 100000,
+    currency: 'INR',
+    fee_paise: 2360,
+    tax_paise: 360,
+    status: 'captured',
+    method: 'upi',
+    vpa: 'buyer@okhdfcbank',
+    email: 'rohit@example.in',
+    contact: '+919822011111',
+    captured_at: '2026-02-24T10:15:30Z',
+    idempotency_key: 'idem_evt_capture_1001',
+  },
+  {
+    id: 'txn_002',
+    order_id: 'ord_17905002',
+    razorpay_order_id: 'order_ThQ32Kbf_002',
+    razorpay_payment_id: 'pay_ThQ32Kbf_002',
+    amount_paise: 150000,
+    currency: 'INR',
+    fee_paise: 3540,
+    tax_paise: 540,
+    status: 'captured',
+    method: 'card',
+    email: 'ananya@example.in',
+    contact: '+919822022222',
+    captured_at: '2026-02-25T11:20:45Z',
+    idempotency_key: 'idem_evt_capture_1002',
+  },
+  {
+    id: 'txn_003',
+    order_id: 'ord_17905003',
+    razorpay_order_id: 'order_ThQ32Kbf_003',
+    razorpay_payment_id: 'pay_ThQ32Kbf_003',
+    amount_paise: 120000,
+    currency: 'INR',
+    fee_paise: 2832,
+    tax_paise: 432,
+    status: 'captured',
+    method: 'netbanking',
+    bank: 'HDFC',
+    email: 'suresh@example.in',
+    contact: '+919822033333',
+    captured_at: '2026-02-26T09:00:20Z',
+    idempotency_key: 'idem_evt_capture_1003',
+  },
+];
+
+export const sampleSettlementRecords: SettlementRecord[] = [
+  {
+    id: 'setl_001',
+    settlement_id: 'setl_ThQ32Kbf_881',
+    amount_paise: 250000, // ₹2,500
+    fee_paise: 5900,
+    tax_paise: 900,
+    net_amount_paise: 244100, // ₹2,441
+    status: 'settled',
+    utr: 'HDFCR20260226998124',
+    bank_account_masked: 'HDFC Bank •••• 8912',
+    created_at: '2026-02-25T23:59:59Z',
+    settled_at: '2026-02-26T06:30:00Z',
+  },
+];
+
+export const sampleRefundRecords: RefundRecord[] = [
+  {
+    id: 'rfnd_001',
+    payment_id: 'pay_ThQ32Kbf_old_099',
+    order_id: 'ord_17904099',
+    order_number: 'CHK-712891',
+    amount_paise: 50000, // ₹500
+    owner_deduction_paise: 10000, // 20% reversed = ₹100
+    seller_deduction_paise: 40000, // 80% reversed = ₹400
+    reason: 'Customer requested cancellation prior to digital asset download',
+    status: 'processed',
+    created_at: '2026-02-20T16:00:00Z',
   },
 ];
 
@@ -318,32 +415,6 @@ export const sampleReviews: Review[] = [
     verified_purchase: true,
     created_at: '2026-02-14T09:10:00Z',
   },
-  {
-    id: 'rev_3',
-    product_id: 'prod_brass_diya_lamp',
-    user_id: 'user_suresh',
-    user_name: 'Suresh Patil',
-    user_avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop',
-    rating: 5,
-    title: 'Superb craftsmanship and heavy pure brass',
-    comment:
-      'The chakra engraving is mesmerizing. Delivered safely to Pune in a protective velvet gift pack. Excellent quality.',
-    verified_purchase: true,
-    created_at: '2026-02-18T11:00:00Z',
-  },
-  {
-    id: 'rev_4',
-    product_id: 'prod_marathi_stories',
-    user_id: 'user_vaishali',
-    user_name: 'वैशाली गाडगीळ',
-    user_avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop',
-    rating: 5,
-    title: 'अतिशय हृदयस्पर्शी आणि प्रेरणादायी कथा!',
-    comment:
-      'तन्वी जोशी यांचे लेखन मनाला स्पर्शून जाते. सह्याद्रीच्या इतिहासाचे वर्णन सुंदर आहे. ई-बुक डाऊनलोड अगदी सहज आणि तत्काळ झाले.',
-    verified_purchase: true,
-    created_at: '2026-02-21T18:30:00Z',
-  },
 ];
 
 export const sampleBlogPosts: BlogPost[] = [
@@ -356,18 +427,15 @@ export const sampleBlogPosts: BlogPost[] = [
     content: `
 # How to Sell Digital Products in India (2026 Blueprint)
 
-The Indian creator economy has transitioned from social media vanity metrics to sovereign direct-to-consumer digital commerce. Today, individual authors, engineers, and teachers can package their specialized expertise into eBooks, templates, and courses.
+The Indian creator economy has transitioned from social media vanity metrics to sovereign direct-to-consumer digital commerce.
 
-## 1. Why the 10% Marketplace Model Wins
-Traditional international platforms charge up to 30% plus heavy foreign currency conversion fees. CHAKRA introduces a transparent 10% marketplace commission, with 90% going straight to creators.
+## 1. The 20% Fair Marketplace Model
+International platforms charge upwards of 30% plus cross-border foreign exchange conversion fees. CHAKRA introduces a fixed 20% marketplace commission snapshot, with sellers receiving 80% direct net settlement.
 
 ## 2. Choosing Your Product Format
 * **eBooks & PDF Notes**: Highest conversion rate, immediate utility.
 * **Design Systems & Templates**: High perceived value for businesses.
 * **Online Video Kits & Code**: Premium pricing potential (₹1,500 – ₹5,000).
-
-## 3. Safe Delivery with Tokenized Links
-Never host paid files on open Google Drive links. Using cryptographic tokenized downloads ensures that only verified purchasers receive time-limited, limit-tracked downloads.
     `,
     category: 'Creator Strategy',
     read_time_mins: 6,
@@ -380,74 +448,17 @@ Never host paid files on open Google Drive links. Using cryptographic tokenized 
     cover_image: '/images/hero_marketplace_showcase_1790588339548.jpg',
     tags: ['Monetization', 'eBooks', 'Razorpay', 'Digital Products'],
   },
-  {
-    id: 'blog_2',
-    slug: 'marathi-content-creators-digital-revolution',
-    title: 'मराठी लेखकांसाठी डिजिटल क्रांती: स्वतःचे ई-पुस्तक कसे प्रकाशित करावे?',
-    excerpt:
-      'पारंपरिक प्रकाशकांच्या फेऱ्या न मारता स्वतःची पुस्तके, शैक्षणिक नोट्स आणि कथा थेट वाचकांपर्यंत पोहोचवा. संपूर्ण मराठी मार्गदर्शिका.',
-    content: `
-# मराठी लेखकांसाठी डिजिटल क्रांती
-
-महाराष्ट्र ही संतांची, विचारवंतांची आणि दर्जेदार साहित्याची भूमी आहे. मात्र अनेक होतकरू लेखकांना पुस्तक छपाईचा खर्च आणि प्रकाशकांची रॉयल्टी मिळण्यात मोठ्या अडचणी येतात. 
-
-## डिजिटल व्यासपीठाचे फायदे:
-१. **शून्य छपाई खर्च**: पुस्तक पीडीएफ किंवा ई-पब स्वरूपात एकदाच तयार करा.
-२. **थेट उत्पन्न**: विक्रीच्या ९०% रक्कम थेट तुमच्या भारतीय बँक खात्यात जमा होते.
-३. **जागतिक वाचकवर्ग**: मुंबई, पुणे, नागपूरसह अमेरिका, लंडन आणि आखाती देशांतील मराठी वाचकही त्वरित खरेदी करू शकतात.
-    `,
-    category: 'साहित्य व लेखन',
-    read_time_mins: 5,
-    author: {
-      name: 'तन्वी जोशी',
-      role: 'साहित्यिक व सल्लागार',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&auto=format&fit=crop',
-    },
-    published_date: 'February 20, 2026',
-    cover_image: '/images/product_ebook_guide_1790588355041.jpg',
-    tags: ['मराठी', 'ई-बुक', 'स्वयं-प्रकाशन', 'कमाई'],
-  },
-  {
-    id: 'blog_3',
-    slug: 'ethical-affiliate-marketing-india',
-    title: 'Ethical Affiliate Marketing: How Genuine Recommenders Earn 3-5%',
-    excerpt:
-      'Why spamming links fails, and how curated curation creates predictable passive income for community leaders, newsletter writers, and educators.',
-    content: `
-# Ethical Affiliate Marketing: Sustainable Commissions Without Spam
-
-Affiliate marketing has suffered from spam schemes in the past. At CHAKRA, affiliate partnerships are rooted in verifiable value.
-
-## The Mathematical Model
-When an affiliate refers a buyer for a ₹500 product:
-* Seller receives ₹450 (90%)
-* Affiliate earns ₹15 (3% of product value, funded from marketplace fee)
-* CHAKRA retains ₹35 to cover servers, Razorpay processing, and security
-
-This ensures that the seller never loses more than the agreed 10% platform fee, while incentivizing advocates to recommend quality products.
-    `,
-    category: 'Affiliate Growth',
-    read_time_mins: 4,
-    author: {
-      name: 'Priya Kulkarni',
-      role: 'Product Architect',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop',
-    },
-    published_date: 'February 15, 2026',
-    cover_image: '/images/product_course_design_1790588371629.jpg',
-    tags: ['Affiliate', 'Commission', 'Transparency'],
-  },
 ];
 
 export const sampleUser: UserProfile = {
   id: 'usr_current_user',
-  email: 'creator@chakra-marketplace.in',
-  full_name: 'Devendra Kulkarni',
+  email: 'owner@chakra-marketplace.in',
+  full_name: 'CHAKRA Marketplace Owner',
   avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop',
   phone: '+91 98220 12345',
-  roles: ['buyer', 'seller', 'affiliate', 'admin'],
-  activeRole: 'buyer',
-  bio: 'Digital creator, educator, and enthusiast of Indian typography and heritage arts.',
+  roles: ['buyer', 'seller', 'affiliate', 'admin', 'owner'],
+  activeRole: 'owner',
+  bio: 'Platform founder and administrator overseeing creator economics, Razorpay Route settlements, and content governance.',
   created_at: '2026-01-01T00:00:00Z',
   seller_profile: {
     store_name: 'Chakra Sovereign Studio',
@@ -457,18 +468,20 @@ export const sampleUser: UserProfile = {
     verified: true,
     verification_status: 'approved',
     payout_account: {
-      account_holder_name: 'Devendra Kulkarni',
-      bank_name: 'HDFC Bank',
+      account_holder_name: 'CHAKRA Technologies Pvt Ltd',
+      bank_name: 'HDFC Bank Ltd',
       account_number: '•••• •••• 8912',
       ifsc_code: 'HDFC0001245',
-      upi_id: 'devendra@okhdfcbank',
+      upi_id: 'chakra@okhdfcbank',
       pan_number: 'ABCDE1234F',
       kyc_approved: true,
+      razorpay_linked_account_id: 'acc_ThQ32KbfQQu7Qy',
+      route_active: false,
     },
   },
   affiliate_profile: {
-    affiliate_code: 'dev_growth_26',
-    payment_upi: 'devendra@okhdfcbank',
+    affiliate_code: 'chakra_owner',
+    payment_upi: 'chakra@okhdfcbank',
     status: 'active',
     tier: 'gold',
   },

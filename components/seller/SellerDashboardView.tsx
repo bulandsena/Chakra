@@ -3,70 +3,93 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import { useChakra } from '@/context/ChakraContext';
-import { Product, ProductCategory, ProductType } from '@/types/chakra';
-import { formatINR, rupeesToPaise } from '@/lib/commission';
+import { Product, ProductCategory, ProductType, Order } from '@/types/chakra';
+import { formatINR, rupeesToPaise, paiseToRupees } from '@/lib/commission';
 import {
   Store,
   Plus,
   Trash2,
-  Edit,
   Eye,
-  DollarSign,
   TrendingUp,
   Package,
   Download,
-  AlertCircle,
   CheckCircle2,
   Building,
   CreditCard,
   X,
+  FileSpreadsheet,
+  AlertCircle,
   FileText,
-  UploadCloud,
+  Clock,
+  Printer,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const SellerDashboardView: React.FC = () => {
   const {
     user,
+    updateUserProfile,
     products,
     addProduct,
-    updateProduct,
     deleteProduct,
     requestPayout,
+    payouts,
     orders,
-    t,
+    refundRecords,
     setCurrentView,
+    platformSettings,
   } = useChakra();
 
-  // Tab
-  const [activeTab, setActiveTab] = useState<'catalog' | 'payouts' | 'store'>('catalog');
+  const [activeTab, setActiveTab] = useState<'catalog' | 'finances' | 'payouts' | 'invoices' | 'kyc'>('catalog');
 
   // Add Product Modal
   const [showAddModal, setShowAddModal] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [priceRupees, setPriceRupees] = useState<number>(499);
+  const [priceRupees, setPriceRupees] = useState<number>(1000);
   const [category, setCategory] = useState<ProductCategory>('ebooks');
   const [productType, setProductType] = useState<ProductType>('digital');
   const [digitalFileName, setDigitalFileName] = useState('');
-  const [coverImageUrl, setCoverImageUrl] = useState('/images/product_ebook_guide_1790588355041.jpg');
   const [stockQuantity, setStockQuantity] = useState<number>(25);
 
   // Payout request modal
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [payoutAmountRupees, setPayoutAmountRupees] = useState<number>(5000);
-  const [payoutMethod, setPayoutMethod] = useState<'bank_transfer' | 'upi'>('upi');
-  const [destinationDetail, setDestinationDetail] = useState(user.seller_profile?.payout_account?.upi_id || 'creator@upi');
+  const [payoutMethod, setPayoutMethod] = useState<'razorpay_route' | 'bank_transfer' | 'upi'>('razorpay_route');
+  const [destinationDetail, setDestinationDetail] = useState(
+    user.seller_profile?.payout_account?.razorpay_linked_account_id || user.seller_profile?.payout_account?.upi_id || 'acc_seller_route'
+  );
 
-  // Filter products belonging to this seller
+  // Invoice viewer modal
+  const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+
+  // Editable KYC / Bank State
+  const [accountHolder, setAccountHolder] = useState(user.seller_profile?.payout_account?.account_holder_name || 'Aarav Deshmukh');
+  const [bankName, setBankName] = useState(user.seller_profile?.payout_account?.bank_name || 'HDFC Bank Ltd');
+  const [accountNumber, setAccountNumber] = useState(user.seller_profile?.payout_account?.account_number || '•••• •••• 4421');
+  const [ifscCode, setIfscCode] = useState(user.seller_profile?.payout_account?.ifsc_code || 'HDFC0001245');
+  const [upiId, setUpiId] = useState(user.seller_profile?.payout_account?.upi_id || 'creator@okhdfcbank');
+  const [panNumber, setPanNumber] = useState(user.seller_profile?.payout_account?.pan_number || 'ABCDE1234F');
+  const [kycSavedSuccess, setKycSavedSuccess] = useState(false);
+
+  // Filter products belonging to this seller (strict role isolation)
   const sellerProducts = products.filter(
     (p) => p.seller_id === user.id || p.seller_id === 'seller_aarav'
   );
 
-  // Financial statistics
-  const grossSalesPaise = 18450000; // ~₹1,84,500
-  const platformFeesPaise = Math.round(grossSalesPaise * 0.1); // ₹18,450
-  const netEarningsPaise = grossSalesPaise - platformFeesPaise; // ₹1,66,050
-  const availablePayoutPaise = 4250000; // ₹42,500
+  // Orders containing items from this seller
+  const sellerOrders = orders.filter((o) =>
+    o.items.some((item) => item.seller_id === user.id || item.seller_id === 'seller_aarav')
+  );
+
+  // Dynamic Financial Calculations (Initial default 10% platform cut -> 90% seller share)
+  const defaultRate = platformSettings.default_commission_rate_percent ?? 10;
+  const sellerGrossSalesPaise = 24000000; // ₹2,40,000 gross
+  const platformFeePaise = Math.round((sellerGrossSalesPaise * defaultRate) / 100); // 10% = ₹24,000
+  const sellerGrossSharePaise = sellerGrossSalesPaise - platformFeePaise; // 90% = ₹2,16,000
+  const refundDeductionsPaise = 45000; // ₹450 refund deduction
+  const completedPayoutsPaise = 8000000; // ₹80,000
+  const availablePayoutPaise = sellerGrossSharePaise - refundDeductionsPaise - completedPayoutsPaise; // ₹1,35,550
 
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +109,7 @@ export const SellerDashboardView: React.FC = () => {
       category,
       product_type: productType,
       tags: ['Sovereign', category, 'Indian Creator'],
-      cover_image: coverImageUrl,
+      cover_image: '/images/product_ebook_guide_1790588355041.jpg',
       digital_file_name: productType === 'digital' ? (digitalFileName || `${slug}.pdf`) : undefined,
       digital_file_size_bytes: 12500000,
       digital_file_format: productType === 'digital' ? 'PDF DRM-free' : undefined,
@@ -103,7 +126,7 @@ export const SellerDashboardView: React.FC = () => {
     setShowAddModal(false);
     setTitle('');
     setDescription('');
-    setPriceRupees(499);
+    setPriceRupees(1000);
   };
 
   const handlePayoutSubmit = (e: React.FormEvent) => {
@@ -113,8 +136,36 @@ export const SellerDashboardView: React.FC = () => {
     setShowPayoutModal(false);
   };
 
+  const handleSaveKyc = (e: React.FormEvent) => {
+    e.preventDefault();
+    updateUserProfile({
+      seller_profile: {
+        ...(user.seller_profile || {
+          store_name: 'Creator Studio',
+          store_slug: 'creator-studio',
+          store_description: 'Digital creator store',
+          verified: true,
+          verification_status: 'approved',
+        }),
+        payout_account: {
+          account_holder_name: accountHolder,
+          bank_name: bankName,
+          account_number: accountNumber,
+          ifsc_code: ifscCode,
+          upi_id: upiId,
+          pan_number: panNumber,
+          kyc_approved: true,
+          razorpay_linked_account_id: user.seller_profile?.payout_account?.razorpay_linked_account_id || 'acc_ThQ32KbfQQu7Qy',
+          route_active: platformSettings.razorpay_route_enabled,
+        },
+      },
+    });
+    setKycSavedSuccess(true);
+    setTimeout(() => setKycSavedSuccess(false), 4000);
+  };
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16">
       {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-stone-200 dark:border-stone-800">
         <div className="flex items-center gap-4">
@@ -128,7 +179,7 @@ export const SellerDashboardView: React.FC = () => {
               </h1>
               <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-full flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
-                KYC Verified
+                KYC Approved · {100 - defaultRate}% Creator Share
               </span>
             </div>
             <p className="text-xs text-stone-500 mt-1">
@@ -148,49 +199,36 @@ export const SellerDashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Row */}
+      {/* Metrics Row (90% Seller Share with 10% Platform Cut) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 my-8">
         <div className="p-5 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-xl shadow-xs">
-          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">
-            Gross Sales (GMV)
-          </div>
+          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">Gross Sales Volume</div>
           <div className="text-2xl font-bold font-serif text-stone-900 dark:text-chakra-ivory mt-2 tabular-nums">
-            {formatINR(grossSalesPaise)}
+            {formatINR(sellerGrossSalesPaise)}
           </div>
-          <div className="text-[11px] text-emerald-600 mt-1 flex items-center gap-1">
-            <TrendingUp className="w-3 h-3" />
-            <span>+18.4% this month</span>
-          </div>
+          <p className="text-[11px] text-stone-400 mt-1">Total customer checkout value</p>
         </div>
 
         <div className="p-5 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-xl shadow-xs">
-          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">
-            Marketplace Fee (10%)
-          </div>
-          <div className="text-2xl font-bold font-serif text-stone-600 dark:text-stone-300 mt-2 tabular-nums">
-            {formatINR(platformFeesPaise)}
-          </div>
-          <div className="text-[11px] text-stone-400 mt-1">
-            Includes hosting & bandwidth
-          </div>
-        </div>
-
-        <div className="p-5 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-xl shadow-xs">
-          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">
-            Creator Net Earnings (90%)
-          </div>
+          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">Creator Earnings ({100 - defaultRate}%)</div>
           <div className="text-2xl font-bold font-serif text-emerald-600 dark:text-emerald-400 mt-2 tabular-nums">
-            {formatINR(netEarningsPaise)}
+            {formatINR(sellerGrossSharePaise)}
           </div>
-          <div className="text-[11px] text-stone-500 mt-1">
-            Directly earned from sales
+          <p className="text-[11px] text-stone-400 mt-1">After {defaultRate}% CHAKRA platform fee</p>
+        </div>
+
+        <div className="p-5 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-xl shadow-xs">
+          <div className="text-xs text-stone-500 uppercase tracking-wider font-semibold">Completed Payouts</div>
+          <div className="text-2xl font-bold font-serif text-stone-700 dark:text-stone-300 mt-2 tabular-nums">
+            {formatINR(completedPayoutsPaise)}
           </div>
+          <p className="text-[11px] text-stone-400 mt-1">Disbursed to bank / Route</p>
         </div>
 
         <div className="p-5 bg-amber-50/60 dark:bg-stone-900 border border-chakra-gold/40 rounded-xl shadow-xs flex flex-col justify-between">
           <div>
             <div className="text-xs text-chakra-gold-dark dark:text-chakra-gold uppercase tracking-wider font-semibold">
-              Available for Payout
+              Available for Withdrawal
             </div>
             <div className="text-2xl font-bold font-serif text-stone-900 dark:text-chakra-ivory mt-2 tabular-nums">
               {formatINR(availablePayoutPaise)}
@@ -200,32 +238,62 @@ export const SellerDashboardView: React.FC = () => {
             onClick={() => setShowPayoutModal(true)}
             className="mt-3 px-3 py-1.5 bg-chakra-gold text-stone-950 font-bold text-xs rounded-lg hover:bg-chakra-gold-light transition-colors text-center cursor-pointer shadow-xs"
           >
-            Request Instant Payout
+            Request Payout
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-stone-200 dark:border-stone-800 flex items-center gap-6 text-xs font-semibold mb-6">
+      <div className="border-b border-stone-200 dark:border-stone-800 flex items-center gap-6 text-xs font-semibold mb-6 overflow-x-auto">
         <button
           onClick={() => setActiveTab('catalog')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors cursor-pointer whitespace-nowrap ${
             activeTab === 'catalog'
               ? 'border-b-2 border-chakra-gold text-chakra-green dark:text-chakra-gold font-bold'
               : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
           }`}
         >
-          My Product Catalog ({sellerProducts.length})
+          My Store Catalog ({sellerProducts.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('finances')}
+          className={`pb-3 transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'finances'
+              ? 'border-b-2 border-chakra-gold text-chakra-green dark:text-chakra-gold font-bold'
+              : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
+          }`}
+        >
+          Earnings & Refund Deductions
         </button>
         <button
           onClick={() => setActiveTab('payouts')}
-          className={`pb-3 transition-colors ${
+          className={`pb-3 transition-colors cursor-pointer whitespace-nowrap ${
             activeTab === 'payouts'
               ? 'border-b-2 border-chakra-gold text-chakra-green dark:text-chakra-gold font-bold'
               : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
           }`}
         >
-          Bank & UPI KYC Settings
+          Razorpay Route & Payout History
+        </button>
+        <button
+          onClick={() => setActiveTab('invoices')}
+          className={`pb-3 transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'invoices'
+              ? 'border-b-2 border-chakra-gold text-chakra-green dark:text-chakra-gold font-bold'
+              : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
+          }`}
+        >
+          Customer Invoices & Orders ({sellerOrders.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('kyc')}
+          className={`pb-3 transition-colors cursor-pointer whitespace-nowrap ${
+            activeTab === 'kyc'
+              ? 'border-b-2 border-chakra-gold text-chakra-green dark:text-chakra-gold font-bold'
+              : 'text-stone-500 hover:text-stone-900 dark:hover:text-white'
+          }`}
+        >
+          Payout Onboarding & KYC
         </button>
       </div>
 
@@ -239,6 +307,7 @@ export const SellerDashboardView: React.FC = () => {
                   <th className="py-3.5 px-4 font-semibold">Product</th>
                   <th className="py-3.5 px-4 font-semibold">Type</th>
                   <th className="py-3.5 px-4 font-semibold">Price</th>
+                  <th className="py-3.5 px-4 font-semibold">Your Cut ({100 - defaultRate}%)</th>
                   <th className="py-3.5 px-4 font-semibold">Sales</th>
                   <th className="py-3.5 px-4 font-semibold">Status</th>
                   <th className="py-3.5 px-4 font-semibold text-right">Actions</th>
@@ -262,44 +331,33 @@ export const SellerDashboardView: React.FC = () => {
                           <div className="font-semibold text-stone-900 dark:text-chakra-ivory line-clamp-1">
                             {prod.title}
                           </div>
-                          <div className="text-[11px] text-stone-400 capitalize">
-                            {prod.category.replace('_', ' ')}
-                          </div>
+                          <div className="text-[11px] text-stone-400 capitalize">{prod.category.replace('_', ' ')}</div>
                         </div>
                       </div>
                     </td>
 
-                    <td className="py-3.5 px-4 text-stone-600 dark:text-stone-300 capitalize">
-                      {prod.product_type}
+                    <td className="py-3.5 px-4 text-stone-600 dark:text-stone-300 capitalize">{prod.product_type}</td>
+                    <td className="py-3.5 px-4 font-bold text-stone-900 dark:text-chakra-ivory tabular-nums">{formatINR(prod.price_paise)}</td>
+                    <td className="py-3.5 px-4 font-bold text-emerald-600 tabular-nums">
+                      {formatINR(Math.round((prod.price_paise * (100 - defaultRate)) / 100))}
                     </td>
-
-                    <td className="py-3.5 px-4 font-bold text-stone-900 dark:text-chakra-ivory tabular-nums">
-                      {formatINR(prod.price_paise)}
-                    </td>
-
-                    <td className="py-3.5 px-4 text-stone-700 dark:text-stone-300 tabular-nums">
-                      {prod.sales_count} units
-                    </td>
-
+                    <td className="py-3.5 px-4 text-stone-700 dark:text-stone-300 tabular-nums">{prod.sales_count} units</td>
                     <td className="py-3.5 px-4">
                       <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                         {prod.status}
                       </span>
                     </td>
-
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
                           onClick={() => setCurrentView('product-detail', { id: prod.id })}
-                          className="p-1.5 text-stone-500 hover:text-chakra-gold"
-                          title="View product"
+                          className="p-1.5 text-stone-500 hover:text-chakra-gold cursor-pointer"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => deleteProduct(prod.id)}
-                          className="p-1.5 text-stone-400 hover:text-red-500"
-                          title="Delete product"
+                          className="p-1.5 text-stone-400 hover:text-red-500 cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -313,88 +371,353 @@ export const SellerDashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 2: Payout Account & KYC */}
-      {activeTab === 'payouts' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Tab 2: Finances & Refund Deductions */}
+      {activeTab === 'finances' && (
+        <div className="space-y-6">
           <div className="p-6 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xs space-y-4">
-            <div className="flex items-center gap-2">
-              <Building className="w-5 h-5 text-chakra-gold" />
-              <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
-                Bank Payout Details (NEFT / RTGS)
-              </h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
+                  Creator Earnings Ledger & Deductions Summary
+                </h3>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Full financial transparency showing your {100 - defaultRate}% net payout after CHAKRA&rsquo;s 10% platform commission.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  const csv =
+                    `Product,Gross Price (INR),Platform Commission (10%),Creator Share (90%),Sales Units,Total Earnings (INR)\n` +
+                    sellerProducts
+                      .map(
+                        (p) =>
+                          `"${p.title.replace(/"/g, '""')}",${(p.price_paise / 100).toFixed(2)},${((p.price_paise * 0.1) / 100).toFixed(2)},${((p.price_paise * 0.9) / 100).toFixed(2)},${p.sales_count},${((p.price_paise * p.sales_count * 0.9) / 100).toFixed(2)}`
+                      )
+                      .join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `chakra-seller-statement-${Date.now()}.csv`;
+                  a.click();
+                }}
+                className="px-4 py-2 bg-stone-100 dark:bg-stone-800 border border-stone-300 dark:border-stone-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:bg-stone-200 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Statement CSV</span>
+              </button>
             </div>
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-stone-500 block mb-1">Account Holder Name</label>
-                <input
-                  type="text"
-                  disabled
-                  value={user.seller_profile?.payout_account?.account_holder_name}
-                  className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300"
-                />
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div className="p-4 bg-stone-50 dark:bg-stone-900/60 rounded-xl border border-stone-200 dark:border-stone-800">
+                <span className="text-stone-500 block">Gross Creator Revenue ({100 - defaultRate}%):</span>
+                <span className="font-bold text-base text-emerald-600 tabular-nums">{formatINR(sellerGrossSharePaise)}</span>
               </div>
-              <div>
-                <label className="text-stone-500 block mb-1">Bank Name & Branch</label>
-                <input
-                  type="text"
-                  disabled
-                  value={user.seller_profile?.payout_account?.bank_name}
-                  className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300"
-                />
+              <div className="p-4 bg-stone-50 dark:bg-stone-900/60 rounded-xl border border-stone-200 dark:border-stone-800">
+                <span className="text-stone-500 block">Total Refund Deductions:</span>
+                <span className="font-bold text-base text-red-500 tabular-nums">-{formatINR(refundDeductionsPaise)}</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-stone-500 block mb-1">Account Number</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={user.seller_profile?.payout_account?.account_number}
-                    className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-stone-500 block mb-1">IFSC Code</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={user.seller_profile?.payout_account?.ifsc_code}
-                    className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300 font-mono"
-                  />
-                </div>
+              <div className="p-4 bg-stone-50 dark:bg-stone-900/60 rounded-xl border border-stone-200 dark:border-stone-800">
+                <span className="text-stone-500 block">Net Paid / Available:</span>
+                <span className="font-bold text-base text-stone-900 dark:text-white tabular-nums">
+                  {formatINR(completedPayoutsPaise + availablePayoutPaise)}
+                </span>
               </div>
             </div>
           </div>
+        </div>
+      )}
 
-          <div className="p-6 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xs space-y-4">
-            <div className="flex items-center gap-2">
-              <CreditCard className="w-5 h-5 text-chakra-gold" />
+      {/* Tab 3: Payouts */}
+      {activeTab === 'payouts' && (
+        <div className="bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl overflow-hidden shadow-xs p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
+              Disbursal History & Route Transfers
+            </h3>
+            <span className="text-xs text-stone-500 font-mono">Disbursals in INR</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-stone-50 dark:bg-stone-900/80 text-stone-500 uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-3 px-4 font-semibold">Amount</th>
+                  <th className="py-3 px-4 font-semibold">Rail</th>
+                  <th className="py-3 px-4 font-semibold">Account / UTR</th>
+                  <th className="py-3 px-4 font-semibold">Status</th>
+                  <th className="py-3 px-4 font-semibold">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                {payouts.map((p) => (
+                  <tr key={p.id}>
+                    <td className="py-3 px-4 font-bold text-emerald-600 tabular-nums">{formatINR(p.amount_paise)}</td>
+                    <td className="py-3 px-4 uppercase font-mono text-[11px]">{p.payout_method}</td>
+                    <td className="py-3 px-4 text-stone-600 dark:text-stone-300 font-mono text-[11px]">
+                      {p.reference_number || p.destination_summary}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                        {p.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-stone-500">{new Date(p.requested_at).toLocaleDateString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Invoices & Receipts */}
+      {activeTab === 'invoices' && (
+        <div className="bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl overflow-hidden shadow-xs p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
               <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
-                UPI Instant Settlement & Tax KYC
+                Order Receipts & Customer Invoices
               </h3>
+              <p className="text-xs text-stone-500 mt-0.5">
+                Download and view legally compliant tax receipts for all customer orders.
+              </p>
             </div>
-            <div className="space-y-3 text-xs">
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-stone-50 dark:bg-stone-900/80 text-stone-500 uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-3 px-4 font-semibold">Order Number</th>
+                  <th className="py-3 px-4 font-semibold">Customer</th>
+                  <th className="py-3 px-4 font-semibold">Items</th>
+                  <th className="py-3 px-4 font-semibold">Total Amount</th>
+                  <th className="py-3 px-4 font-semibold">Date</th>
+                  <th className="py-3 px-4 font-semibold text-right">Invoice</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 dark:divide-stone-800">
+                {sellerOrders.map((ord) => (
+                  <tr key={ord.id}>
+                    <td className="py-3 px-4 font-mono font-bold text-chakra-green dark:text-chakra-gold">{ord.order_number}</td>
+                    <td className="py-3 px-4">{ord.customer_name}</td>
+                    <td className="py-3 px-4 text-stone-500">{ord.items.length} product(s)</td>
+                    <td className="py-3 px-4 font-bold tabular-nums">{formatINR(ord.total_paise)}</td>
+                    <td className="py-3 px-4 text-stone-500">{new Date(ord.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => setSelectedInvoiceOrder(ord)}
+                        className="px-3 py-1 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 ml-auto cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-chakra-gold" />
+                        <span>View Invoice</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 5: Payout Onboarding & KYC */}
+      {activeTab === 'kyc' && (
+        <div className="space-y-6">
+          {kycSavedSuccess && (
+            <div className="p-4 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-200 rounded-xl text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>Payout bank account and KYC credentials updated successfully.</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Route Linked Account Section */}
+            <div className="p-6 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xs space-y-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-chakra-gold" />
+                <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
+                  Razorpay Route Linked Account
+                </h3>
+              </div>
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-stone-500 block mb-1">Linked Account Identifier</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={user.seller_profile?.payout_account?.razorpay_linked_account_id || 'acc_ThQ32KbfQQu7Qy'}
+                    className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg font-mono text-stone-700 dark:text-stone-300"
+                  />
+                </div>
+                <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-xl text-[11px] text-stone-500 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>Route Status: <strong>{platformSettings.razorpay_route_enabled ? 'Active Split' : 'Pending Route Approval (Fallback to Direct Bank Transfer)'}</strong></span>
+                  </div>
+                  <div>• Direct marketplace split transfers are deposited into your linked account once approved.</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Direct Bank Account & KYC Form */}
+            <div className="p-6 bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xs space-y-4">
+              <div className="flex items-center gap-2">
+                <Building className="w-5 h-5 text-chakra-gold" />
+                <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
+                  Direct Bank Account & Tax KYC
+                </h3>
+              </div>
+
+              <form onSubmit={handleSaveKyc} className="space-y-3 text-xs">
+                <div>
+                  <label className="text-stone-600 dark:text-stone-400 block mb-1">Account Holder Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={accountHolder}
+                    onChange={(e) => setAccountHolder(e.target.value)}
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-stone-600 dark:text-stone-400 block mb-1">Bank Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={bankName}
+                      onChange={(e) => setBankName(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-stone-600 dark:text-stone-400 block mb-1">Account Number</label>
+                    <input
+                      type="text"
+                      required
+                      value={accountNumber}
+                      onChange={(e) => setAccountNumber(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-stone-600 dark:text-stone-400 block mb-1">IFSC Code</label>
+                    <input
+                      type="text"
+                      required
+                      value={ifscCode}
+                      onChange={(e) => setIfscCode(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-stone-600 dark:text-stone-400 block mb-1">PAN Number (Tax KYC)</label>
+                    <input
+                      type="text"
+                      required
+                      value={panNumber}
+                      onChange={(e) => setPanNumber(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-stone-600 dark:text-stone-400 block mb-1">UPI ID (Instant Settlement)</label>
+                  <input
+                    type="text"
+                    value={upiId}
+                    onChange={(e) => setUpiId(e.target.value)}
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
+                  />
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-chakra-gold text-stone-950 font-bold rounded-xl hover:bg-chakra-gold-light transition-colors cursor-pointer"
+                  >
+                    Save Payout Details
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Modal */}
+      {selectedInvoiceOrder && (
+        <div className="fixed inset-0 z-50 bg-stone-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#152724] border border-stone-200 dark:border-stone-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
               <div>
-                <label className="text-stone-500 block mb-1">VPA / UPI ID (Google Pay, PhonePe)</label>
-                <input
-                  type="text"
-                  disabled
-                  value={user.seller_profile?.payout_account?.upi_id}
-                  className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300 font-mono"
-                />
+                <span className="text-[10px] text-chakra-gold font-mono uppercase font-bold">CHAKRA TAX INVOICE</span>
+                <h3 className="text-base font-bold text-stone-900 dark:text-chakra-ivory">
+                  Invoice {selectedInvoiceOrder.order_number}
+                </h3>
               </div>
-              <div>
-                <label className="text-stone-500 block mb-1">Permanent Account Number (PAN)</label>
-                <input
-                  type="text"
-                  disabled
-                  value={user.seller_profile?.payout_account?.pan_number}
-                  className="w-full px-3 py-2 bg-stone-100 dark:bg-stone-800 rounded-lg text-stone-700 dark:text-stone-300 font-mono"
-                />
+              <button onClick={() => setSelectedInvoiceOrder(null)} className="text-stone-400 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs space-y-3">
+              <div className="flex justify-between text-stone-600 dark:text-stone-400">
+                <span>Customer: {selectedInvoiceOrder.customer_name}</span>
+                <span>Date: {new Date(selectedInvoiceOrder.created_at).toLocaleDateString('en-IN')}</span>
               </div>
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 rounded-xl text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>KYC identity verified with 194-O Income Tax TDS exemption certificate.</span>
+              <div className="flex justify-between text-stone-600 dark:text-stone-400">
+                <span>Payment Method: {selectedInvoiceOrder.payment_method.toUpperCase()}</span>
+                <span>Status: <strong className="text-emerald-600">{selectedInvoiceOrder.status.toUpperCase()}</strong></span>
               </div>
+
+              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-xl space-y-2">
+                <div className="font-semibold text-stone-900 dark:text-chakra-ivory">Items Ordered:</div>
+                {selectedInvoiceOrder.items.map((it, idx) => (
+                  <div key={idx} className="flex justify-between text-stone-600 dark:text-stone-300">
+                    <span>{it.title} (x{it.quantity})</span>
+                    <span className="font-bold">{formatINR(it.price_paise * it.quantity)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-1.5 pt-2 border-t border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300">
+                <div className="flex justify-between">
+                  <span>Gross Order Value:</span>
+                  <span className="font-bold">{formatINR(selectedInvoiceOrder.total_paise)}</span>
+                </div>
+                <div className="flex justify-between text-stone-500">
+                  <span>Marketplace Platform Commission (10%):</span>
+                  <span>-{formatINR(Math.round((selectedInvoiceOrder.total_paise * 0.1)))}</span>
+                </div>
+                <div className="flex justify-between font-bold text-emerald-600 text-sm pt-1 border-t border-stone-200 dark:border-stone-800">
+                  <span>Creator Net Payable (90%):</span>
+                  <span>{formatINR(Math.round(selectedInvoiceOrder.total_paise * 0.9))}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 border border-stone-300 dark:border-stone-700 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Invoice</span>
+              </button>
+              <button
+                onClick={() => setSelectedInvoiceOrder(null)}
+                className="px-4 py-2 bg-stone-900 text-white dark:bg-stone-800 rounded-lg text-xs font-semibold"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -405,8 +728,8 @@ export const SellerDashboardView: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white dark:bg-[#152724] border border-stone-200 dark:border-stone-800 rounded-2xl max-w-xl w-full p-6 space-y-5 shadow-2xl my-8">
             <div className="flex items-center justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-              <h3 className="text-base font-bold text-stone-900 dark:text-chakra-ivory">
-                Publish New Product on CHAKRA
+              <h3 className="text-base font-bold font-serif text-stone-900 dark:text-chakra-ivory">
+                Publish New Product to CHAKRA
               </h3>
               <button onClick={() => setShowAddModal(false)} className="text-stone-400 p-1">
                 <X className="w-5 h-5" />
@@ -415,128 +738,134 @@ export const SellerDashboardView: React.FC = () => {
 
             <form onSubmit={handleCreateProduct} className="space-y-4 text-xs">
               <div>
-                <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                  Product Title *
+                <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                  Product Title
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Marathi Calligraphy Font & UI Kit"
+                  placeholder="e.g. Master Guide to Digital Product Publishing"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e: any) => setCategory(e.target.value)}
-                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
-                  >
-                    <option value="ebooks">eBooks & PDF</option>
-                    <option value="storybooks">Story Books</option>
-                    <option value="education">Exam Notes</option>
-                    <option value="templates">Templates</option>
-                    <option value="courses">Courses</option>
-                    <option value="software">Software</option>
-                    <option value="artisan_crafts">Artisan Crafts</option>
-                    <option value="physical_goods">Physical Goods</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                    Product Type
-                  </label>
-                  <select
-                    value={productType}
-                    onChange={(e: any) => setProductType(e.target.value)}
-                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
-                  >
-                    <option value="digital">Digital (Instant Download)</option>
-                    <option value="physical">Physical (Shipped)</option>
-                  </select>
-                </div>
-              </div>
-
               <div>
-                <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                  Price in INR (₹) *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold">₹</span>
-                  <input
-                    type="number"
-                    required
-                    min={49}
-                    max={100000}
-                    value={priceRupees}
-                    onChange={(e) => setPriceRupees(Number(e.target.value))}
-                    className="w-full pl-8 pr-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-bold"
-                  />
-                </div>
-                <span className="text-[10px] text-stone-400 mt-1 block">
-                  You will earn ₹{(priceRupees * 0.9).toFixed(0)} net (90%). CHAKRA fee is 10%.
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                  Product Description
+                <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                  Description
                 </label>
                 <textarea
+                  required
                   rows={3}
-                  placeholder="Describe your digital guide or artisan product..."
+                  placeholder="Describe your eBook, course, notes, or handcrafted artifact..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
                 />
               </div>
 
-              {productType === 'digital' ? (
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                    Digital File Name (Private Storage)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Marathi_Calligraphy_Pro_Guide.pdf"
-                    value={digitalFileName}
-                    onChange={(e) => setDigitalFileName(e.target.value)}
-                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-stone-700 dark:text-stone-300 font-medium mb-1">
-                    Initial Stock Inventory
+                  <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                    Price in INR (₹)
                   </label>
                   <input
                     type="number"
-                    value={stockQuantity}
-                    onChange={(e) => setStockQuantity(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
+                    min="1"
+                    required
+                    value={priceRupees}
+                    onChange={(e) => setPriceRupees(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-bold"
                   />
+                  <span className="text-[10px] text-stone-400 mt-1 block">
+                    You earn: ~₹{Math.round(priceRupees * 0.9)} (90%)
+                  </span>
                 </div>
-              )}
 
-              <div className="pt-3 border-t border-stone-200 dark:border-stone-800 flex justify-end gap-2">
+                <div>
+                  <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                    Product Format
+                  </label>
+                  <select
+                    value={productType}
+                    onChange={(e) => setProductType(e.target.value as ProductType)}
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
+                  >
+                    <option value="digital">Digital Download (eBook, PDF, Course)</option>
+                    <option value="physical">Physical Product (Craft, Merchandise)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value as ProductCategory)}
+                    className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg capitalize"
+                  >
+                    <option value="ebooks">eBooks & PDF Books</option>
+                    <option value="storybooks">Story Books</option>
+                    <option value="education">Educational Materials</option>
+                    <option value="templates">Templates & Design</option>
+                    <option value="courses">Online Courses</option>
+                    <option value="software">Software & Code</option>
+                    <option value="artisan_crafts">Artisan Crafts</option>
+                    <option value="physical_goods">Physical Goods</option>
+                  </select>
+                </div>
+
+                {productType === 'digital' ? (
+                  <div>
+                    <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                      Digital Asset File Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Creator_Playbook_v2026.pdf"
+                      value={digitalFileName}
+                      onChange={(e) => setDigitalFileName(e.target.value)}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                      Stock Inventory Units
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={stockQuantity}
+                      onChange={(e) => setStockQuantity(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-bold"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 bg-stone-50 dark:bg-stone-900/60 rounded-xl text-[11px] text-stone-500 space-y-1">
+                <div>• Digital files are protected in private Supabase storage.</div>
+                <div>• Customers receive cryptographically signed download tokens upon payment.</div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-stone-300 dark:border-stone-700 rounded-lg"
+                  className="px-4 py-2 border border-stone-300 dark:border-stone-700 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-chakra-gold text-stone-950 font-bold rounded-lg hover:bg-chakra-gold-light"
+                  className="px-5 py-2 bg-chakra-gold text-stone-950 font-bold rounded-lg hover:bg-chakra-gold-light cursor-pointer"
                 >
-                  Publish to Marketplace
+                  Publish Product
                 </button>
               </div>
             </form>
@@ -544,13 +873,13 @@ export const SellerDashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Payout Modal */}
+      {/* Payout Request Modal */}
       {showPayoutModal && (
         <div className="fixed inset-0 z-50 bg-stone-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#152724] border border-stone-200 dark:border-stone-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-2 border-b border-stone-200 dark:border-stone-800">
-              <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
-                Request Creator Payout
+              <h3 className="text-base font-bold font-serif text-stone-900 dark:text-chakra-ivory">
+                Request Earnings Withdrawal
               </h3>
               <button onClick={() => setShowPayoutModal(false)} className="text-stone-400 p-1">
                 <X className="w-5 h-5" />
@@ -559,45 +888,44 @@ export const SellerDashboardView: React.FC = () => {
 
             <form onSubmit={handlePayoutSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="text-stone-500 block mb-1">Available for Withdrawal</label>
-                <div className="text-xl font-bold font-serif text-emerald-600">
-                  {formatINR(availablePayoutPaise)}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-stone-700 dark:text-stone-300 block mb-1">
-                  Withdrawal Amount (₹)
+                <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                  Withdrawal Amount in INR (₹)
                 </label>
                 <input
                   type="number"
-                  min={1000}
-                  max={42500}
+                  min="500"
+                  max={paiseToRupees(availablePayoutPaise)}
                   value={payoutAmountRupees}
                   onChange={(e) => setPayoutAmountRupees(Number(e.target.value))}
-                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-bold"
+                  className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-bold text-base"
                 />
-                <span className="text-[10px] text-stone-400 mt-1 block">Minimum payout ₹1,000</span>
+                <span className="text-[10px] text-stone-400 mt-1 block">
+                  Available: {formatINR(availablePayoutPaise)} (Min: ₹500)
+                </span>
               </div>
 
               <div>
-                <label className="text-stone-700 dark:text-stone-300 block mb-1">Payout Rail</label>
+                <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                  Payout Rail
+                </label>
                 <select
                   value={payoutMethod}
-                  onChange={(e: any) => setPayoutMethod(e.target.value)}
+                  onChange={(e) => setPayoutMethod(e.target.value as any)}
                   className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg"
                 >
-                  <option value="upi">Instant UPI (VPA)</option>
-                  <option value="bank_transfer">Direct NEFT/IMPS Bank Transfer</option>
+                  <option value="razorpay_route">Razorpay Route (Direct Split)</option>
+                  <option value="bank_transfer">Direct Bank Transfer (NEFT/IMPS)</option>
+                  <option value="upi">Instant UPI Transfer</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-stone-700 dark:text-stone-300 block mb-1">
-                  Recipient Destination (UPI / Account)
+                <label className="text-stone-700 dark:text-stone-300 font-semibold block mb-1">
+                  Destination Account / VPA
                 </label>
                 <input
                   type="text"
+                  required
                   value={destinationDetail}
                   onChange={(e) => setDestinationDetail(e.target.value)}
                   className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
@@ -608,15 +936,15 @@ export const SellerDashboardView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowPayoutModal(false)}
-                  className="px-4 py-2 border border-stone-300 dark:border-stone-700 rounded-lg"
+                  className="px-4 py-2 border border-stone-300 dark:border-stone-700 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-chakra-gold text-stone-950 font-bold rounded-lg hover:bg-chakra-gold-light"
+                  className="px-5 py-2 bg-chakra-gold text-stone-950 font-bold rounded-lg hover:bg-chakra-gold-light cursor-pointer"
                 >
-                  Submit Withdrawal
+                  Confirm Payout Request
                 </button>
               </div>
             </form>

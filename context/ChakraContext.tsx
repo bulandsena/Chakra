@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 import {
   Product,
   CartItem,
@@ -14,17 +14,25 @@ import {
   AffiliateLink,
   PayoutRecord,
   NotificationItem,
+  CommissionRecord,
+  PaymentTransaction,
+  SettlementRecord,
+  RefundRecord,
 } from '@/types/chakra';
 import {
   sampleProducts,
   sampleUser,
   sampleReviews,
   initialPlatformSettings,
+  sampleCommissionRecords,
+  samplePaymentTransactions,
+  sampleSettlementRecords,
+  sampleRefundRecords,
 } from '@/lib/sampleData';
 import { calculateCommission, rupeesToPaise } from '@/lib/commission';
 import { Language, translations } from '@/lib/translations';
 
-// External helper generators (kept outside component body for pure idempotent render compliance)
+// External helper generators (outside component body for pure idempotent render compliance)
 function generateOrderId(): string {
   return `ord_${Date.now()}`;
 }
@@ -36,7 +44,7 @@ function generateOrderNumber(): string {
 function generatePaymentId(paymentMethod: string): string {
   return paymentMethod === 'demo'
     ? `pay_sim_${Date.now().toString(36)}`
-    : `pay_rzp_${Date.now().toString(36)}`;
+    : `pay_ThQ32Kbf_${Date.now().toString(36)}`;
 }
 
 function generateDownloadTicket(orderId: string, product: Product): DownloadTicket {
@@ -132,11 +140,16 @@ interface ChakraContextType {
   downloads: DownloadTicket[];
   triggerDownload: (ticketId: string) => Promise<{ success: boolean; message: string }>;
 
-  // Wishlist
+  // Accounting, Ledger & Owner Finance
+  commissionRecords: CommissionRecord[];
+  paymentTransactions: PaymentTransaction[];
+  settlementRecords: SettlementRecord[];
+  refundRecords: RefundRecord[];
+  processRefund: (orderId: string, reason: string) => Promise<{ success: boolean; message: string }>;
+
+  // Wishlist & Reviews
   wishlist: string[];
   toggleWishlist: (productId: string) => void;
-
-  // Reviews
   reviews: Review[];
   addReview: (review: Omit<Review, 'id' | 'created_at'>) => void;
 
@@ -147,10 +160,12 @@ interface ChakraContextType {
 
   // Seller & Admin
   payouts: PayoutRecord[];
-  requestPayout: (amountPaise: number, method: 'bank_transfer' | 'upi', destination: string) => void;
+  requestPayout: (amountPaise: number, method: 'razorpay_route' | 'bank_transfer' | 'upi', destination: string) => void;
   approvePayout: (payoutId: string) => void;
+  holdPayout: (payoutId: string, reason: string) => void;
   platformSettings: PlatformSettings;
   updatePlatformSettings: (settings: Partial<PlatformSettings>) => void;
+  testRazorpayConnection: () => Promise<{ success: boolean; message: string; details?: any }>;
 
   // Notifications
   notifications: NotificationItem[];
@@ -163,28 +178,61 @@ interface ChakraContextType {
   viewParams: Record<string, string>;
 }
 
+// Local storage listener set for clean SSR-friendly hydration without cascading renders
+const storageListeners = new Set<() => void>();
+function notifyStorageChange() {
+  storageListeners.forEach((listener) => listener());
+}
+function subscribeStorage(callback: () => void) {
+  storageListeners.add(callback);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', callback);
+  }
+  return () => {
+    storageListeners.delete(callback);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', callback);
+    }
+  };
+}
+
+function getLanguageSnapshot(): Language {
+  if (typeof window === 'undefined') return 'en';
+  try {
+    const saved = localStorage.getItem('chakra_lang') as Language;
+    if (saved === 'en' || saved === 'mr' || saved === 'hi') return saved;
+  } catch {
+    // Ignore restricted localStorage
+  }
+  return 'en';
+}
+function getLanguageServerSnapshot(): Language {
+  return 'en';
+}
+
+function getDarkModeSnapshot(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem('chakra_theme') === 'dark';
+  } catch {
+    // Ignore restricted localStorage
+  }
+  return false;
+}
+function getDarkModeServerSnapshot(): boolean {
+  return false;
+}
+
 const ChakraContext = createContext<ChakraContextType | undefined>(undefined);
 
 export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Theme & Language
-  const [language, setLanguageState] = useState<Language>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chakra_lang') as Language;
-      if (saved === 'en' || saved === 'mr' || saved === 'hi') return saved;
-    }
-    return 'en';
-  });
-
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('chakra_theme') === 'dark';
-    }
-    return false;
-  });
+  // Theme & Language synced cleanly with SSR hydration guarantee
+  const language = useSyncExternalStore(subscribeStorage, getLanguageSnapshot, getLanguageServerSnapshot);
+  const darkMode = useSyncExternalStore(subscribeStorage, getDarkModeSnapshot, getDarkModeServerSnapshot);
 
   // User
   const [user, setUser] = useState<UserProfile>(sampleUser);
-  const [activeRole, setActiveRoleState] = useState<UserRole>('buyer');
+  const [activeRole, setActiveRoleState] = useState<UserRole>('owner');
 
   // Products
   const [products, setProducts] = useState<Product[]>(sampleProducts);
@@ -198,6 +246,12 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Orders & Downloads
   const [orders, setOrders] = useState<Order[]>([]);
   const [downloads, setDownloads] = useState<DownloadTicket[]>([]);
+
+  // Financial Ledger & Accounting
+  const [commissionRecords, setCommissionRecords] = useState<CommissionRecord[]>(sampleCommissionRecords);
+  const [paymentTransactions, setPaymentTransactions] = useState<PaymentTransaction[]>(samplePaymentTransactions);
+  const [settlementRecords, setSettlementRecords] = useState<SettlementRecord[]>(sampleSettlementRecords);
+  const [refundRecords, setRefundRecords] = useState<RefundRecord[]>(sampleRefundRecords);
 
   // Wishlist & Reviews
   const [wishlist, setWishlist] = useState<string[]>([]);
@@ -214,8 +268,8 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       target_url: 'https://chakra-marketplace.in/product/the-sovereign-indian-creator-playbook?ref=dev_growth_26',
       clicks: 142,
       conversions: 8,
-      pending_commission_paise: 11976,
-      approved_earnings_paise: 24500,
+      pending_commission_paise: 24000, // 8 * ₹30 (3% of ₹1,000) = ₹240
+      approved_earnings_paise: 48000,
       paid_earnings_paise: 50000,
       created_at: '2026-01-20T10:00:00Z',
     },
@@ -226,13 +280,25 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       id: 'pay_101',
       seller_id: 'seller_aarav',
       seller_name: 'Aarav Deshmukh',
-      amount_paise: 4500000,
+      amount_paise: 8000000, // ₹80,000 (80% of sales)
       status: 'completed',
       payout_method: 'bank_transfer',
       destination_summary: 'HDFC Bank •••• 4120 (IFSC: HDFC0001245)',
       reference_number: 'UTR-20260220-891244',
       requested_at: '2026-02-18T10:00:00Z',
       processed_at: '2026-02-19T14:30:00Z',
+    },
+    {
+      id: 'pay_102',
+      seller_id: 'seller_priya',
+      seller_name: 'Priya Kulkarni',
+      amount_paise: 2400000, // ₹24,000
+      status: 'on_hold',
+      payout_method: 'razorpay_route',
+      destination_summary: 'Razorpay Route Linked Account (acc_priya_ui)',
+      linked_account_id: 'acc_priya_ui',
+      requested_at: '2026-02-26T10:00:00Z',
+      hold_reason: 'Awaiting Route activation approval from Razorpay merchant compliance.',
     },
   ]);
 
@@ -241,9 +307,9 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [notifications, setNotifications] = useState<NotificationItem[]>([
     {
       id: 'notif_welcome',
-      title: 'Welcome to CHAKRA',
-      message: 'Create, sell, and earn with sovereign Indian digital commerce.',
-      type: 'system',
+      title: 'CHAKRA Financial Engine Online',
+      message: 'Fixed 20% owner commission model and Razorpay Route architecture initialized.',
+      type: 'finance',
       read: false,
       created_at: '2026-01-01T00:00:00Z',
     },
@@ -265,23 +331,25 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [darkMode]);
 
   const toggleDarkMode = () => {
-    setDarkMode((prev) => {
-      const next = !prev;
-      if (next) {
-        document.documentElement.classList.add('dark');
-        localStorage.setItem('chakra_theme', 'dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-        localStorage.setItem('chakra_theme', 'light');
+    try {
+      if (typeof window !== 'undefined') {
+        const next = !darkMode;
+        localStorage.setItem('chakra_theme', next ? 'dark' : 'light');
+        notifyStorageChange();
       }
-      return next;
-    });
+    } catch {
+      // Ignore localStorage access failures in restricted environments
+    }
   };
 
   const setLanguage = (lang: Language) => {
-    setLanguageState(lang);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('chakra_lang', lang);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('chakra_lang', lang);
+        notifyStorageChange();
+      }
+    } catch {
+      // Ignore localStorage access failures in restricted environments
     }
   };
 
@@ -300,12 +368,12 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setActiveRole = (role: UserRole) => {
     setActiveRoleState(role);
     setUser((prev) => ({ ...prev, activeRole: role }));
-    addNotification('Role Switched', `Active view perspective changed to ${role.toUpperCase()}.`, 'system');
+    addNotification('Role Switched', `Active perspective set to ${role.toUpperCase()}.`, 'system');
   };
 
   const updateUserProfile = (data: Partial<UserProfile>) => {
     setUser((prev) => ({ ...prev, ...data }));
-    addNotification('Profile Updated', 'Your profile details were saved successfully.', 'system');
+    addNotification('Profile Saved', 'Your user profile details have been updated.', 'system');
   };
 
   const setCurrentView = (view: string, params: Record<string, string> = {}) => {
@@ -339,7 +407,7 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     addNotification(
       'Added to Cart',
-      `"${product.title}" was added to your shopping bag.`,
+      `"${product.title}" added to your bag.`,
       'order'
     );
   };
@@ -369,7 +437,7 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     0
   );
 
-  // Orders & Checkout
+  // Orders, Checkout & Ledger Recording
   const createOrder = async ({
     customerName,
     customerEmail,
@@ -389,11 +457,15 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       country: string;
     };
   }): Promise<Order> => {
+    const defaultCommissionPercent = platformSettings.default_commission_rate_percent ?? 20;
+
     const orderItems = cart.map((item) => {
       const hasAff = Boolean(item.affiliate_ref);
+      const categoryRate = platformSettings.category_commissions?.[item.product.category];
+      const effectiveRate = item.product.commission_override_percent ?? (categoryRate ?? defaultCommissionPercent);
       const commission = calculateCommission({
         productPricePaise: item.product.price_paise * item.quantity,
-        platformCommissionRatePercent: platformSettings.default_commission_rate_percent,
+        platformCommissionRatePercent: effectiveRate,
         affiliateCommissionRatePercent: item.product.custom_affiliate_rate_percent || platformSettings.default_affiliate_rate_percent,
         hasAffiliate: hasAff,
       });
@@ -418,9 +490,12 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const totalPaise = subtotalPaise + taxPaise;
 
     const orderId = generateOrderId();
+    const orderNumber = generateOrderNumber();
+    const paymentId = generatePaymentId(paymentMethod);
+
     const newOrder: Order = {
       id: orderId,
-      order_number: generateOrderNumber(),
+      order_number: orderNumber,
       user_id: user.id,
       customer_name: customerName,
       customer_email: customerEmail,
@@ -432,12 +507,57 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       total_paise: totalPaise,
       status: 'paid',
       payment_method: paymentMethod,
-      payment_id: generatePaymentId(paymentMethod),
+      payment_id: paymentId,
       shipping_address: shippingAddress,
       fulfillment_status: cart.some((i) => i.product.product_type === 'physical')
         ? 'pending'
         : 'not_applicable',
+      commission_percentage: defaultCommissionPercent,
       created_at: new Date().toISOString(),
+    };
+
+    // Record immutable Commission Ledger entries for each order item
+    const newCommissionEntries: CommissionRecord[] = orderItems.map((item, idx) => {
+      return {
+        id: `comm_rec_${Date.now()}_${idx}`,
+        order_id: orderId,
+        order_number: orderNumber,
+        product_id: item.product_id,
+        product_title: item.title,
+        seller_id: item.seller_id,
+        seller_name: item.seller_name,
+        gross_amount_paise: item.price_paise * item.quantity,
+        eligible_amount_paise: item.price_paise * item.quantity,
+        commission_percentage: item.commission.platform_commission_rate_percent,
+        owner_commission_paise: item.commission.platform_gross_fee_paise,
+        seller_amount_paise: item.commission.seller_gross_amount_paise,
+        affiliate_commission_paise: item.commission.affiliate_fee_paise,
+        payment_gateway_fee_paise: item.commission.estimated_payment_gateway_fee_paise,
+        net_marketplace_revenue_paise: item.commission.platform_net_fee_paise,
+        payment_id: paymentId,
+        settlement_status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    // Record payment transaction
+    const newTxn: PaymentTransaction = {
+      id: `txn_${Date.now()}`,
+      order_id: orderId,
+      razorpay_order_id: `order_${Date.now().toString(36)}`,
+      razorpay_payment_id: paymentId,
+      amount_paise: totalPaise,
+      currency: 'INR',
+      fee_paise: Math.round((totalPaise * 236) / 10000),
+      tax_paise: taxPaise,
+      status: 'captured',
+      method: paymentMethod === 'demo' ? 'demo_sim' : 'upi',
+      vpa: customerEmail,
+      email: customerEmail,
+      contact: customerPhone || '+919822000000',
+      captured_at: new Date().toISOString(),
+      idempotency_key: `idem_${orderId}`,
     };
 
     // Generate secure download tickets for digital goods
@@ -449,16 +569,60 @@ export const ChakraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     setOrders((prev) => [newOrder, ...prev]);
+    setCommissionRecords((prev) => [...newCommissionEntries, ...prev]);
+    setPaymentTransactions((prev) => [newTxn, ...prev]);
     setDownloads((prev) => [...newDownloads, ...prev]);
     clearCart();
 
     addNotification(
-      'Order Confirmed!',
-      `Order ${newOrder.order_number} confirmed for ₹${(totalPaise / 100).toFixed(0)}. Digital files unlocked in your library.`,
-      'order'
+      'Payment Verified & Recorded',
+      `Order ${newOrder.order_number} captured. Platform fee (₹${(orderItems.reduce((a, b) => a + b.commission.platform_gross_fee_paise, 0) / 100).toFixed(0)}) and creator share stored.`,
+      'finance'
     );
 
     return newOrder;
+  };
+
+  // Refund processing handler
+  const processRefund = async (orderId: string, reason: string): Promise<{ success: boolean; message: string }> => {
+    const targetOrder = orders.find((o) => o.id === orderId);
+    if (!targetOrder) {
+      return { success: false, message: 'Order reference not found' };
+    }
+
+    const totalRefundPaise = targetOrder.total_paise;
+    const effectiveCommissionRate = (targetOrder.commission_percentage || platformSettings.default_commission_rate_percent || 10) / 100;
+    const ownerDeductionPaise = Math.round(totalRefundPaise * effectiveCommissionRate);
+    const sellerDeductionPaise = totalRefundPaise - ownerDeductionPaise;
+
+    const newRefund: RefundRecord = {
+      id: `rfnd_${Date.now()}`,
+      payment_id: targetOrder.payment_id,
+      order_id: targetOrder.id,
+      order_number: targetOrder.order_number,
+      amount_paise: totalRefundPaise,
+      owner_deduction_paise: ownerDeductionPaise,
+      seller_deduction_paise: sellerDeductionPaise,
+      reason,
+      status: 'processed',
+      created_at: new Date().toISOString(),
+    };
+
+    setRefundRecords((prev) => [newRefund, ...prev]);
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, status: 'refunded' } : o))
+    );
+    setCommissionRecords((prev) =>
+      prev.map((c) => (c.order_id === orderId ? { ...c, settlement_status: 'refunded' } : c))
+    );
+
+    addNotification(
+      'Refund Reconciled',
+      `Reversed ₹${(totalRefundPaise / 100).toFixed(0)}: ₹${(ownerDeductionPaise / 100).toFixed(0)} platform cut reversed, ₹${(sellerDeductionPaise / 100).toFixed(0)} deducted from seller balance.`,
+      'finance'
+    );
+
+    return { success: true, message: 'Refund completed and ledger adjusted.' };
   };
 
   // Secure download handler
@@ -635,7 +799,7 @@ Platform: https://chakra-marketplace.in
   };
 
   // Payouts
-  const requestPayout = (amountPaise: number, method: 'bank_transfer' | 'upi', destination: string) => {
+  const requestPayout = (amountPaise: number, method: 'razorpay_route' | 'bank_transfer' | 'upi', destination: string) => {
     const newPayout: PayoutRecord = {
       id: generatePayoutId(),
       seller_id: user.id,
@@ -663,12 +827,50 @@ Platform: https://chakra-marketplace.in
           : p
       )
     );
-    addNotification('Payout Disbursed', 'The bank transfer has been marked cleared and reconciled.', 'payout');
+    addNotification('Payout Disbursed', 'Transfer reconciled and marked completed.', 'payout');
+  };
+
+  const holdPayout = (payoutId: string, reason: string) => {
+    setPayouts((prev) =>
+      prev.map((p) =>
+        p.id === payoutId
+          ? {
+              ...p,
+              status: 'on_hold',
+              hold_reason: reason,
+            }
+          : p
+      )
+    );
+    addNotification('Settlement Held', `Payout held: ${reason}`, 'payout');
   };
 
   const updatePlatformSettings = (settings: Partial<PlatformSettings>) => {
     setPlatformSettings((prev) => ({ ...prev, ...settings }));
     addNotification('Settings Saved', 'Global marketplace configuration updated.', 'system');
+  };
+
+  // Test real Razorpay connection via server API
+  const testRazorpayConnection = async (): Promise<{ success: boolean; message: string; details?: any }> => {
+    try {
+      const res = await fetch('/api/razorpay/test-connection', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addNotification('Razorpay Connected', 'Verified live connection to Razorpay Merchant API.', 'finance');
+        return { success: true, message: data.message, details: data };
+      } else {
+        return {
+          success: false,
+          message: data.error || 'Connection failed. Verify RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Netlify environment.',
+          details: data,
+        };
+      }
+    } catch {
+      return {
+        success: false,
+        message: 'Could not reach server API. Complete Razorpay environment configuration in Netlify/production.',
+      };
+    }
   };
 
   const markNotificationRead = (id: string) => {
@@ -713,6 +915,11 @@ Platform: https://chakra-marketplace.in
         createOrder,
         downloads,
         triggerDownload,
+        commissionRecords,
+        paymentTransactions,
+        settlementRecords,
+        refundRecords,
+        processRefund,
         wishlist,
         toggleWishlist,
         reviews,
@@ -723,8 +930,10 @@ Platform: https://chakra-marketplace.in
         payouts,
         requestPayout,
         approvePayout,
+        holdPayout,
         platformSettings,
         updatePlatformSettings,
+        testRazorpayConnection,
         notifications,
         markNotificationRead,
         addNotification,
