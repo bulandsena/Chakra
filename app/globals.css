@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --color-chakra-green: #132C28;
+  --color-chakra-green-light: #1c3f3a;
+  --color-chakra-green-dark: #0b1a18;
+  --color-chakra-gold: #D8AD60;
+  --color-chakra-gold-light: #e6c584;
+  --color-chakra-gold-dark: #b88d3f;
+  --color-chakra-ivory: #F6F0E4;
+  --color-chakra-ivory-dark: #eae1cf;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  body {
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+}
+
+/* Custom scrollbar for preview drawers and tables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(216, 173, 96, 0.3);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(216, 173, 96, 0.6);
+}

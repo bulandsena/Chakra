@@ -1,0 +1,6 @@
+{
+  "name": "CHAKRA - Multi-Vendor Marketplace",
+  "description": "CHAKRA — Create • Sell • Earn. Modern multi-vendor marketplace for eBooks, courses, templates, digital assets, and physical crafts with affiliate commissions and secure payouts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
