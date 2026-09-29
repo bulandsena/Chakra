@@ -7,6 +7,7 @@ import { Footer } from '@/components/layout/Footer';
 import { NotificationToast } from '@/components/layout/NotificationToast';
 import { CartDrawer } from '@/components/cart/CartDrawer';
 import { CheckoutModal } from '@/components/checkout/CheckoutModal';
+import { RazorpayRouteNoticeBanner } from '@/components/common/RazorpayRouteNoticeBanner';
 
 // Home Views
 import { HeroSection } from '@/components/home/HeroSection';
@@ -150,6 +151,9 @@ function ChakraApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-[#0c1c19] text-stone-900 dark:text-stone-100 transition-colors">
+      {/* Prominent Global Compliance & Settlement Notice */}
+      <RazorpayRouteNoticeBanner />
+
       <Navbar onOpenCart={() => setIsCartOpen(true)} />
 
       <main className="flex-1">

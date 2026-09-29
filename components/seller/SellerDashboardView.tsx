@@ -431,13 +431,33 @@ export const SellerDashboardView: React.FC = () => {
 
       {/* Tab 3: Payouts */}
       {activeTab === 'payouts' && (
-        <div className="bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl overflow-hidden shadow-xs p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
-              Disbursal History & Route Transfers
-            </h3>
-            <span className="text-xs text-stone-500 font-mono">Disbursals in INR</span>
+        <div className="space-y-6">
+          {/* Razorpay Marketplace Route Warning & Settlement Notice */}
+          <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-2xl flex items-start gap-3 text-xs text-amber-900 dark:text-amber-200 shadow-xs">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="font-bold text-sm">
+                Razorpay Marketplace Route Warning & Settlement Notice
+              </h4>
+              <p className="leading-relaxed">
+                &ldquo;Complete Razorpay marketplace/Route onboarding before enabling seller payouts.&rdquo;
+              </p>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                &ldquo;Marketplace settlement is not configured. Please complete Razorpay marketplace/Route onboarding before enabling seller payouts.&rdquo;
+              </p>
+              <p className="text-[11px] text-stone-600 dark:text-stone-400 italic">
+                &ldquo;CHAKRA commission: 20% before applicable payment gateway charges, taxes, refunds, chargebacks and other applicable adjustments.&rdquo;
+              </p>
+            </div>
           </div>
+
+          <div className="bg-white dark:bg-[#1a2e2b] border border-stone-200 dark:border-stone-800 rounded-2xl overflow-hidden shadow-xs p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-stone-900 dark:text-chakra-ivory">
+                Disbursal History & Route Transfers
+              </h3>
+              <span className="text-xs text-stone-500 font-mono">Disbursals in INR</span>
+            </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-stone-50 dark:bg-stone-900/80 text-stone-500 uppercase tracking-wider text-[11px]">
@@ -468,6 +488,7 @@ export const SellerDashboardView: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
@@ -930,6 +951,20 @@ export const SellerDashboardView: React.FC = () => {
                   onChange={(e) => setDestinationDetail(e.target.value)}
                   className="w-full px-3 py-2 bg-stone-50 dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg font-mono"
                 />
+              </div>
+
+              {/* Razorpay Marketplace Route Warning & Settlement Notice */}
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl text-xs text-amber-900 dark:text-amber-200 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Settlement Notice</span>
+                </div>
+                <p className="text-[11px] leading-snug">
+                  &ldquo;Marketplace settlement is not configured. Please complete Razorpay marketplace/Route onboarding before enabling seller payouts.&rdquo;
+                </p>
+                <p className="text-[10px] text-stone-500 dark:text-stone-400">
+                  Transfers are logged and queued securely. Bank settlement will be processed once Route onboarding approval is complete.
+                </p>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
